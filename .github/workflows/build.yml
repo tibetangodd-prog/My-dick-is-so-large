@@ -34,7 +34,7 @@ jobs:
         run: cordova-res android --type icon --skip-config --copy
 
       - name: Add Android platform
-        run: cordova platform add android
+        run: cordova platform add android@13.0.0
 
       - name: Build APK
         run: cordova build android
