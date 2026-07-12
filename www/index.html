@@ -26,18 +26,30 @@
   .guardBtn.high{background:#c62828;}
   .guardBtn.mid{background:#f9a825;color:#222;}
   .guardBtn.low{background:#1565c0;}
+  .guardBtn:disabled, #btnAttack:disabled{opacity:0.35;}
   #btnAttack{background:#ff9100;color:#222;flex-basis:100%;}
   button:active{filter:brightness(1.3);}
-  #overlay{position:absolute;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:10;}
+
+  #overlay{position:absolute;inset:0;background:rgba(8,9,13,0.94);display:flex;align-items:center;justify-content:center;z-index:10;overflow-y:auto;}
   #overlay.hidden{display:none;}
-  #overlayBox{max-width:90%;text-align:center;}
-  #overlayBox h1{margin-bottom:4px;}
-  #overlayBox p{color:#bbb;font-size:13px;margin-bottom:14px;}
-  #levelSelectGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;max-width:360px;margin:0 auto 14px;}
-  #levelSelectGrid button{background:#2a3140;padding:10px 0;font-size:13px;}
-  #levelSelectGrid button.locked{background:#1a1e26;color:#555;}
-  #overlayButtons{display:flex;gap:10px;justify-content:center;}
-  #overlayButtons button{background:#2e7d32;padding:12px 22px;}
+  #overlayBox{max-width:94%;width:440px;text-align:center;padding:20px 0;}
+  #overlayBox h1{margin:0 0 4px;font-size:26px;letter-spacing:2px;background:linear-gradient(90deg,#ff9100,#ff5252);-webkit-background-clip:text;background-clip:text;color:transparent;}
+  #overlayBox p{color:#9aa0ab;font-size:12.5px;margin:0 0 16px;line-height:1.5;}
+
+  #levelSelectGrid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px;max-width:400px;margin:0 auto 18px;padding:0 12px;}
+  .lvlCard{position:relative;aspect-ratio:1/1;border-radius:12px;border:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;font-weight:bold;}
+  .lvlCard .num{font-size:18px;}
+  .lvlCard .tag{font-size:9px;font-weight:normal;opacity:0.8;}
+  .lvlCard.playable{background:linear-gradient(145deg,#2f3a52,#232a3d);color:#fff;box-shadow:0 0 0 1px rgba(255,255,255,0.06) inset;}
+  .lvlCard.playable:active{filter:brightness(1.25);}
+  .lvlCard.current{background:linear-gradient(145deg,#ff9100,#e65100);color:#221200;box-shadow:0 0 12px rgba(255,145,0,0.55);}
+  .lvlCard.cleared{background:linear-gradient(145deg,#2e7d32,#1b5e20);color:#e8f5e9;}
+  .lvlCard.locked{background:#161a22;color:#454c5a;}
+  .lvlCard.locked .num{opacity:0.5;}
+
+  #overlayButtons{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
+  #overlayButtons button{background:#2e7d32;padding:12px 22px;border-radius:10px;}
+  #overlayButtons button.secondary{background:#37474f;}
 </style>
 </head>
 <body>
@@ -65,7 +77,7 @@
   <div id="overlay">
     <div id="overlayBox">
       <h1 id="overlayTitle">格擋之刃</h1>
-      <p id="overlayText">看破敵人斬擊的前搖，時機精準即可完美格擋反傷；擋錯或不擋則會被擊退扣血。</p>
+      <p id="overlayText">看破敵人斬擊的前搖，格擋觸發後的瞬間反應才是完美格擋；斬擊有明顯前後搖，出手前請確認安全。</p>
       <div id="levelSelectGrid"></div>
       <div id="overlayButtons"></div>
     </div>
@@ -82,9 +94,14 @@ const PLAYER_MIN_X=50, PLAYER_MAX_X=340;
 const PLAYER_SPEED=0.28;
 const FOLLOW_OFFSET=110;
 const MELEE_RANGE=130;
-const ATTACK_STARTUP=90, ATTACK_ACTIVE=110, ATTACK_RECOVER=260;
-const ACTIVE_DURATION=130;
-const PERFECT_WINDOW=170;
+
+const ATTACK_STARTUP=400;   // 前搖
+const ATTACK_ACTIVE=110;    // 判定
+const ATTACK_RECOVER=200;   // 後搖
+const GUARD_DURATION=1000;  // 格擋固定持續時間
+const PERFECT_WINDOW=170;   // 格擋觸發後多快被打中算完美格擋
+
+const ACTIVE_DURATION=130;  // 敵人攻擊判定時間
 const STUN_DURATION=800;
 const PLAYER_HURT_DURATION=450;
 const KNOCKBACK=45;
@@ -92,13 +109,14 @@ const KNOCKBACK=45;
 function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
 function laneColor(l){return l==='high'?'#ef5350':l==='mid'?'#ffca28':'#42a5f5';}
 function laneLabel(l){return l==='high'?'上':l==='mid'?'中':'下';}
+function laneFullLabel(l){return l==='high'?'上段防禦':l==='mid'?'中段防禦':'下段防禦';}
 function lerp(a,b,t){return a+(b-a)*t;}
 
 function getLevelConfig(lv){
   return {
-    telegraph: Math.max(110, 900 - lv*38),
-    idleWait: Math.max(260, 1500 - lv*42),
-    recover: Math.max(180, 600 - lv*13),
+    telegraph: Math.max(160, 950 - lv*36),
+    idleWait: Math.max(300, 1500 - lv*40),
+    recover: Math.max(200, 620 - lv*13),
     comboChance: Math.min(1, Math.max(0,(lv-6)*0.05)),
     hp: 3 + Math.floor(lv/2),
     approachSpeed: 0.3 + lv*0.015
@@ -108,11 +126,10 @@ function getLevelConfig(lv){
 const state={ screen:'menu', level:1, maxUnlocked: parseInt(localStorage.getItem('parrygame_maxlevel')||'1',10) };
 
 const player={
-  x:150,y:GROUND_Y,facing:1,hp:3,maxHp:3,state:'idle',
+  x:150,y:GROUND_Y,facing:1,hp:3,maxHp:3,state:'idle', // idle | guarding | attacking | hurt
   hurtUntil:0,
-  attackStartupEnd:0,attackActiveEnd:0,attackRecoverEnd:0,attackCooldownUntil:0,hasHitThisSwing:false,
-  guardLane:null,guardHoldStart:0,
-  guardActive:{high:false,mid:false,low:false},
+  attackStartupEnd:0,attackActiveEnd:0,attackRecoverEnd:0,hasHitThisSwing:false,
+  guardLane:null,guardStart:0,guardEnd:0,
   bob:0
 };
 
@@ -121,8 +138,8 @@ const enemy={
 };
 
 const input={moveBack:false,moveForward:false};
-let effects=[];       // floating text
-let particles=[];     // spark/blood/dust particles
+let effects=[];
+let particles=[];
 let shake={mag:0,until:0};
 let flashColor=null,flashUntil=0;
 
@@ -162,7 +179,6 @@ function spawnSparkBurst(x,y,color){
 function spawnRing(x,y,color){
   particles.push({x,y,life:0,maxLife:400,size:6,color,ring:true,gravity:0});
 }
-
 function updateParticles(dt){
   particles=particles.filter(p=>p.life<p.maxLife);
   particles.forEach(p=>{
@@ -195,31 +211,32 @@ function drawParticles(){
   });
 }
 
+// ---- Player actions ----
 function pressGuard(lane){
-  if(player.guardActive[lane])return;
-  player.guardActive[lane]=true;
+  if(state.screen!=='playing')return;
+  if(player.state!=='idle')return; // 攻擊中或已在格擋中，不可觸發
+  const t=performance.now();
+  player.state='guarding';
   player.guardLane=lane;
-  player.guardHoldStart=performance.now();
-}
-function releaseGuard(lane){
-  player.guardActive[lane]=false;
-  if(player.guardLane===lane){
-    const remain=['high','mid','low'].find(l=>player.guardActive[l]);
-    player.guardLane=remain||null;
-    if(remain)player.guardHoldStart=performance.now();
-  }
+  player.guardStart=t;
+  player.guardEnd=t+GUARD_DURATION;
+  updateButtonStates();
 }
 function triggerAttack(){
   if(state.screen!=='playing')return;
-  if(player.state==='hurt'||player.state==='attacking')return;
+  if(player.state!=='idle')return; // 格擋中或攻擊中不可再出手
   const t=performance.now();
-  if(t<player.attackCooldownUntil)return;
   player.state='attacking';
   player.hasHitThisSwing=false;
   player.attackStartupEnd=t+ATTACK_STARTUP;
   player.attackActiveEnd=player.attackStartupEnd+ATTACK_ACTIVE;
   player.attackRecoverEnd=player.attackActiveEnd+ATTACK_RECOVER;
-  player.attackCooldownUntil=player.attackRecoverEnd;
+  updateButtonStates();
+}
+function updateButtonStates(){
+  const busy = player.state!=='idle';
+  ['btnHigh','btnMid','btnLow'].forEach(id=>document.getElementById(id).disabled = state.screen!=='playing' || busy);
+  document.getElementById('btnAttack').disabled = state.screen!=='playing' || busy;
 }
 
 function damagePlayer(){
@@ -227,11 +244,13 @@ function damagePlayer(){
   player.hp--;
   player.state='hurt';
   player.hurtUntil=performance.now()+PLAYER_HURT_DURATION;
+  player.guardLane=null;
   const dir = player.x<enemy.x?-1:1;
   player.x=clamp(player.x+dir*KNOCKBACK,PLAYER_MIN_X,PLAYER_MAX_X);
   spawnParticles(player.x,player.y-50,10,{color:'#ff5252',speed:3,life:450,upBias:2});
   addShake(8,300);
   flash('rgba(255,0,0,0.25)',180);
+  updateButtonStates();
   if(player.hp<=0)playerDies();
 }
 function checkEnemyDeath(){
@@ -240,10 +259,10 @@ function checkEnemyDeath(){
 }
 
 function resolveEnemyHit(t){
-  const guarding = player.guardLane===enemy.attackLane && player.state==='idle';
+  const guarding = player.state==='guarding' && player.guardLane===enemy.attackLane;
   if(guarding){
-    const held=t-player.guardHoldStart;
-    if(held<=PERFECT_WINDOW){
+    const elapsed=t-player.guardStart;
+    if(elapsed<=PERFECT_WINDOW){
       enemy.hp--;
       spawnEffect('完美格擋!',player.x,player.y-70,'#69f0ae');
       spawnRing(player.x,player.y-55,'#69f0ae');
@@ -318,7 +337,12 @@ function update(dt,t){
   player.bob=Math.sin(t/220)*3;
   enemy.bob=Math.sin(t/260+1)*3;
 
-  if(player.state==='attacking'){
+  if(player.state==='guarding'){
+    if(t>=player.guardEnd){
+      player.state='idle';player.guardLane=null;
+      updateButtonStates();
+    }
+  } else if(player.state==='attacking'){
     if(t<player.attackStartupEnd){}
     else if(t<player.attackActiveEnd){
       if(!player.hasHitThisSwing){
@@ -334,9 +358,9 @@ function update(dt,t){
         }
       }
     } else if(t<player.attackRecoverEnd){}
-    else{player.state='idle';}
+    else{player.state='idle';updateButtonStates();}
   } else if(player.state==='hurt'){
-    if(t>=player.hurtUntil)player.state='idle';
+    if(t>=player.hurtUntil){player.state='idle';updateButtonStates();}
   }
   updateParticles(dt);
   if(state.screen!=='playing')return;
@@ -347,10 +371,8 @@ function drawBackground(){
   const g=ctx.createLinearGradient(0,0,0,CANVAS_H);
   g.addColorStop(0,'#2a3348');g.addColorStop(0.6,'#1c2130');g.addColorStop(1,'#11141c');
   ctx.fillStyle=g;ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
-  // distant pillars for depth
   ctx.fillStyle='rgba(255,255,255,0.03)';
   for(let i=0;i<6;i++){ ctx.fillRect(40+i*140,40,26,GROUND_Y-40); }
-  // ground
   const g2=ctx.createLinearGradient(0,GROUND_Y,0,CANVAS_H);
   g2.addColorStop(0,'#3a4358');g2.addColorStop(1,'#191c24');
   ctx.fillStyle=g2;ctx.fillRect(0,GROUND_Y,CANVAS_W,CANVAS_H-GROUND_Y);
@@ -358,8 +380,6 @@ function drawBackground(){
   ctx.beginPath();ctx.moveTo(0,GROUND_Y);ctx.lineTo(CANVAS_W,GROUND_Y);ctx.stroke();
 }
 
-// Draw a stylised humanoid fighter.
-// pose: 'idle' | 'guard' | 'attack' | 'hurt' | 'windup' | 'stunned'
 function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
   ctx.save();
   ctx.translate(x,y+bob);
@@ -367,19 +387,18 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
 
   const legSwing = pose==='idle' ? Math.sin(performance.now()/300)*4 : 0;
 
-  // shadow
   ctx.save();ctx.globalAlpha=0.35;ctx.fillStyle='#000';
   ctx.beginPath();ctx.ellipse(0,2,26,7,0,0,Math.PI*2);ctx.fill();
   ctx.restore();
 
-  // legs
   ctx.strokeStyle=color.limb;ctx.lineWidth=9;ctx.lineCap='round';
   ctx.beginPath();ctx.moveTo(-6,-34);ctx.lineTo(-10+legSwing,0);ctx.stroke();
   ctx.beginPath();ctx.moveTo(6,-34);ctx.lineTo(10-legSwing,0);ctx.stroke();
 
-  // torso lean
-  let leanX=0, leanY=0, rot=0;
-  if(pose==='guard'){ leanX=-6; rot=-0.05; }
+  let leanX=0, rot=0;
+  if(pose==='guard-high'){ leanX=-4; rot=-0.1; }
+  if(pose==='guard-mid'){ leanX=-6; rot=-0.03; }
+  if(pose==='guard-low'){ leanX=-3; rot=0.08; }
   if(pose==='hurt'){ leanX=8; rot=0.15; }
   if(pose==='windup'){ rot=-0.12 - 0.15*poseProgress; leanX=-4; }
   if(pose==='attack'){ rot=lerp(-0.3,0.5,poseProgress); }
@@ -389,45 +408,40 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
   ctx.translate(leanX,-34);
   ctx.rotate(rot);
 
-  // torso
   ctx.fillStyle=color.body;
   ctx.beginPath();
   ctx.moveTo(-13,0);ctx.lineTo(13,0);ctx.lineTo(10,-38);ctx.lineTo(-10,-38);
   ctx.closePath();ctx.fill();
-  // chest highlight
   ctx.fillStyle=color.bodyHi;
   ctx.beginPath();ctx.moveTo(-6,-4);ctx.lineTo(6,-4);ctx.lineTo(5,-30);ctx.lineTo(-5,-30);ctx.closePath();ctx.fill();
 
-  // back arm (behind)
   ctx.strokeStyle=color.limb;ctx.lineWidth=8;ctx.lineCap='round';
-  ctx.beginPath();ctx.moveTo(-9,-32);ctx.lineTo(-18,-14+ (pose==='guard'?-6:0));ctx.stroke();
+  const backArmGuard = pose.startsWith('guard');
+  ctx.beginPath();ctx.moveTo(-9,-32);ctx.lineTo(-18,-14+(backArmGuard?-8:0));ctx.stroke();
+  // off-hand raised as extra visual cue for guard
+  if(backArmGuard){
+    ctx.beginPath();ctx.arc(-19,-24,6,0,Math.PI*2);ctx.fillStyle=color.limb;ctx.fill();
+  }
 
-  // head
   ctx.fillStyle=skin;
   ctx.beginPath();ctx.arc(0,-46,11,0,Math.PI*2);ctx.fill();
-  // simple hair/helmet crest
   ctx.fillStyle=color.crest;
   ctx.beginPath();ctx.ellipse(0,-54,9,5,0,Math.PI,Math.PI*2);ctx.fill();
 
-  // FRONT ARM + WEAPON (sword arm)
-  let armAngle = -0.7; // idle raised-ish
+  let armAngle=-0.5+Math.sin(performance.now()/300)*0.08;
   let swordLen=34;
-  if(pose==='guard'){
-    // point arm/sword toward guard lane
-    const laneAngle = lane==='high' ? -1.5 : lane==='mid' ? -0.7 : 0.15;
-    armAngle = laneAngle;
-  } else if(pose==='windup'){
+  let swordTilt=0.5;
+  if(pose==='guard-high'){ armAngle=-2.55; swordTilt=0.15; }
+  else if(pose==='guard-mid'){ armAngle=-1.35; swordTilt=1.35; }
+  else if(pose==='guard-low'){ armAngle=-0.15; swordTilt=1.9; }
+  else if(pose==='windup'){
     const laneAngle = lane==='high' ? -2.3 : lane==='mid' ? -1.9 : -1.3;
     armAngle = lerp(-0.9, laneAngle, poseProgress);
   } else if(pose==='attack'){
     armAngle = lerp(-2.2, 1.1, poseProgress);
-  } else if(pose==='hurt'){
-    armAngle=0.6;
-  } else if(pose==='stunned'){
-    armAngle=1.1;
-  } else { // idle
-    armAngle=-0.5+Math.sin(performance.now()/300)*0.08;
-  }
+    swordTilt = lerp(0.2,0.9,poseProgress);
+  } else if(pose==='hurt'){ armAngle=0.6; }
+  else if(pose==='stunned'){ armAngle=1.1; }
 
   const shoulderX=8, shoulderY=-33;
   const handX=shoulderX+Math.cos(armAngle)*20;
@@ -436,39 +450,33 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
   ctx.strokeStyle=color.limb;ctx.lineWidth=8;ctx.lineCap='round';
   ctx.beginPath();ctx.moveTo(shoulderX,shoulderY);ctx.lineTo(handX,handY);ctx.stroke();
 
-  // sword
   ctx.save();
   ctx.translate(handX,handY);
-  ctx.rotate(armAngle - Math.PI/2 + (pose==='attack'? 0.9:0.5));
-  // blade
+  ctx.rotate(armAngle - Math.PI/2 + swordTilt);
   const bladeGrad=ctx.createLinearGradient(0,0,0,-swordLen);
   bladeGrad.addColorStop(0,'#eceff1');bladeGrad.addColorStop(1,'#fafafa');
   ctx.fillStyle=bladeGrad;
   ctx.beginPath();
   ctx.moveTo(-3,4);ctx.lineTo(3,4);ctx.lineTo(2,-swordLen);ctx.lineTo(0,-swordLen-6);ctx.lineTo(-2,-swordLen);
   ctx.closePath();ctx.fill();
-  // guard
   ctx.fillStyle=color.crest;
   ctx.fillRect(-7,3,14,4);
-  // handle
   ctx.fillStyle='#4e342e';
   ctx.fillRect(-2,6,4,8);
   ctx.restore();
 
-  // guard shield glow if actively guarding a lane (idle-guard pose)
-  if(pose==='guard'){
+  if(pose.startsWith('guard')){
     ctx.save();
-    ctx.globalAlpha=0.5+0.3*Math.sin(performance.now()/90);
+    ctx.globalAlpha=0.55+0.3*Math.sin(performance.now()/90);
     ctx.strokeStyle=laneColor(lane);
     ctx.lineWidth=4;
     ctx.beginPath();
-    ctx.arc(handX,handY,14,0,Math.PI*2);
+    ctx.arc(handX,handY,15,0,Math.PI*2);
     ctx.stroke();
     ctx.restore();
   }
 
-  // slash trail during attack active swing
-  if(pose==='attack' && poseProgress>0.35 && poseProgress<0.85){
+  if(pose==='attack' && poseProgress>0.6 && poseProgress<0.9){
     ctx.save();
     ctx.strokeStyle='rgba(255,255,255,0.9)';
     ctx.lineWidth=5;
@@ -478,34 +486,55 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
     ctx.restore();
   }
 
-  ctx.restore(); // torso rotate/lean
-  ctx.restore(); // facing scale
+  ctx.restore();
+  ctx.restore();
 }
 
 function drawPlayer(t){
   let pose='idle', progress=0;
   if(player.state==='attacking'){
-    pose='attack';
-    if(t<player.attackStartupEnd) progress=(t-(player.attackStartupEnd-ATTACK_STARTUP))/ATTACK_STARTUP*0.35;
-    else if(t<player.attackActiveEnd) progress=0.35+ (t-player.attackStartupEnd)/ATTACK_ACTIVE*0.5;
-    else progress=0.85+(t-player.attackActiveEnd)/ATTACK_RECOVER*0.15;
+    if(t<player.attackStartupEnd){
+      pose='windup';
+      progress=1-(player.attackStartupEnd-t)/ATTACK_STARTUP;
+    } else if(t<player.attackActiveEnd){
+      pose='attack';
+      progress=(t-player.attackStartupEnd)/ATTACK_ACTIVE;
+    } else {
+      pose='attack';
+      progress=1;
+    }
   } else if(player.state==='hurt'){
     pose='hurt';
-  } else if(player.guardLane){
-    pose='guard';
+  } else if(player.state==='guarding'){
+    pose='guard-'+player.guardLane;
   }
   const color={body:'#3b6fb0',bodyHi:'#5c93d6',limb:'#274a73',crest:'#ffca28'};
   drawFighter(player.x,player.y,player.bob,player.facing,'#ffccab',pose,progress,player.guardLane||'mid',color);
 
-  // lane indicators (small icons above head showing which lanes are held)
-  ['high','mid','low'].forEach((l,i)=>{
-    const active=player.guardActive[l];
+  if(player.state==='guarding'){
+    const t2=performance.now();
+    const frac=clamp((player.guardEnd-t2)/GUARD_DURATION,0,1);
     ctx.save();
-    ctx.globalAlpha=active?1:0.25;
-    ctx.fillStyle=laneColor(l);
-    ctx.beginPath();ctx.arc(player.x+30, player.y-100+ i*16, 6,0,Math.PI*2);ctx.fill();
+    ctx.translate(player.x,player.y-118+player.bob);
+    ctx.strokeStyle='rgba(255,255,255,0.2)';ctx.lineWidth=4;
+    ctx.beginPath();ctx.arc(0,0,13,0,Math.PI*2);ctx.stroke();
+    ctx.strokeStyle=laneColor(player.guardLane);ctx.lineWidth=4;
+    ctx.beginPath();ctx.arc(0,0,13,-Math.PI/2,-Math.PI/2+frac*Math.PI*2);ctx.stroke();
+    ctx.fillStyle='#fff';ctx.font='bold 13px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,0.6)';
+    ctx.strokeText(laneFullLabel(player.guardLane),0,-22);
+    ctx.fillText(laneFullLabel(player.guardLane),0,-22);
     ctx.restore();
-  });
+  } else if(player.state==='attacking'){
+    ctx.save();
+    ctx.fillStyle= t<player.attackStartupEnd ? '#ffab40' : '#ff5252';
+    ctx.font='bold 12px sans-serif';ctx.textAlign='center';
+    ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,0.6)';
+    const label = t<player.attackStartupEnd ? '蓄力中...' : (t<player.attackActiveEnd?'斬擊!':'後搖中');
+    ctx.strokeText(label,player.x,player.y-118+player.bob);
+    ctx.fillText(label,player.x,player.y-118+player.bob);
+    ctx.restore();
+  }
 }
 
 function drawEnemy(t){
@@ -582,7 +611,6 @@ function render(t){
   ctx.clearRect(-20,-20,CANVAS_W+40,CANVAS_H+40);
   drawBackground();
   if(state.screen==='playing'||state.screen==='cleared'||state.screen==='dead'){
-    // draw farther one first for slight depth ordering
     if(player.x<enemy.x){ drawPlayer(t); drawEnemy(t); } else { drawEnemy(t); drawPlayer(t); }
     drawParticles();
     drawEffects(t);
@@ -611,18 +639,18 @@ function startLevel(n){
   const cfg=getLevelConfig(n);
   player.hp=player.maxHp=3;
   player.x=150;player.state='idle';player.guardLane=null;
-  player.guardActive={high:false,mid:false,low:false};
   enemy.cfg=cfg;enemy.hp=cfg.hp;enemy.maxHp=cfg.hp;
   enemy.x=player.x+FOLLOW_OFFSET;enemy.state='chase';enemy.timer=cfg.idleWait;
   effects=[];particles=[];
   state.screen='playing';
+  updateButtonStates();
   hideOverlay();
 }
 function playerDies(){
   state.screen='dead';
-  showOverlay('被擊敗','第 '+state.level+' 關... 看清前搖，抓準時機再出手！',[
+  showOverlay('被擊敗','第 '+state.level+' 關... 看清前搖，格擋觸發後保持警覺，抓準時機再出手！',[
     {label:'重試',action:()=>startLevel(state.level)},
-    {label:'返回選單',action:showMenu}
+    {label:'返回選單',action:showMenu,secondary:true}
   ]);
 }
 function enemyDies(){
@@ -639,7 +667,7 @@ function enemyDies(){
   } else {
     showOverlay('關卡過關','第 '+state.level+' 關 完成！',[
       {label:'下一關',action:()=>startLevel(state.level+1)},
-      {label:'返回選單',action:showMenu}
+      {label:'返回選單',action:showMenu,secondary:true}
     ]);
   }
 }
@@ -654,6 +682,7 @@ function showOverlay(title,text,buttons){
   buttons.forEach(b=>{
     const el=document.createElement('button');
     el.textContent=b.label;
+    if(b.secondary)el.className='secondary';
     el.onclick=b.action;
     btnArea.appendChild(el);
   });
@@ -665,27 +694,36 @@ function showMenu(){
   grid.innerHTML='';
   for(let i=1;i<=30;i++){
     const b=document.createElement('button');
-    b.textContent=i;
-    if(i>state.maxUnlocked){b.className='locked';b.disabled=true;}
-    else b.onclick=()=>startLevel(i);
+    b.className='lvlCard';
+    let status='locked', tag='鎖定';
+    if(i<state.maxUnlocked){status='cleared';tag='已通關';}
+    else if(i===state.maxUnlocked){status='current';tag='挑戰';}
+    b.classList.add(status==='locked'?'locked':(status==='current'?'current':'cleared'));
+    if(status!=='locked'){ b.classList.add('playable'); b.onclick=()=>startLevel(i); }
+    else { b.disabled=true; }
+    b.innerHTML = status==='locked'
+      ? `<div class="num">🔒</div><div class="tag">${i}</div>`
+      : `<div class="num">${i}</div><div class="tag">${tag}</div>`;
     grid.appendChild(b);
   }
   document.getElementById('overlayTitle').textContent='格擋之刃';
-  document.getElementById('overlayText').textContent='看破敵人斬擊的前搖，時機精準即可完美格擋反傷；擋錯或不擋則會被擊退扣血。';
+  document.getElementById('overlayText').textContent='點擊格擋鍵會立即進入該方向防禦姿態並持續 1 秒（此時無法攻擊）；斬擊有前後搖，出手前後都無法格擋。挑選一關開始吧。';
   document.getElementById('overlayButtons').innerHTML='';
   document.getElementById('overlay').classList.remove('hidden');
 }
 
-function bindHold(el,onDown,onUp){
-  el.addEventListener('pointerdown',e=>{e.preventDefault();onDown();});
-  ['pointerup','pointercancel','pointerleave'].forEach(ev=>el.addEventListener(ev,()=>onUp()));
+function bindTap(el,fn){
+  el.addEventListener('pointerdown',e=>{e.preventDefault();fn();});
 }
-bindHold(document.getElementById('btnBack'),()=>input.moveBack=true,()=>input.moveBack=false);
-bindHold(document.getElementById('btnForward'),()=>input.moveForward=true,()=>input.moveForward=false);
-bindHold(document.getElementById('btnHigh'),()=>pressGuard('high'),()=>releaseGuard('high'));
-bindHold(document.getElementById('btnMid'),()=>pressGuard('mid'),()=>releaseGuard('mid'));
-bindHold(document.getElementById('btnLow'),()=>pressGuard('low'),()=>releaseGuard('low'));
-document.getElementById('btnAttack').addEventListener('pointerdown',e=>{e.preventDefault();triggerAttack();});
+document.getElementById('btnBack').addEventListener('pointerdown',e=>{e.preventDefault();input.moveBack=true;});
+['pointerup','pointercancel','pointerleave'].forEach(ev=>document.getElementById('btnBack').addEventListener(ev,()=>input.moveBack=false));
+document.getElementById('btnForward').addEventListener('pointerdown',e=>{e.preventDefault();input.moveForward=true;});
+['pointerup','pointercancel','pointerleave'].forEach(ev=>document.getElementById('btnForward').addEventListener(ev,()=>input.moveForward=false));
+
+bindTap(document.getElementById('btnHigh'),()=>pressGuard('high'));
+bindTap(document.getElementById('btnMid'),()=>pressGuard('mid'));
+bindTap(document.getElementById('btnLow'),()=>pressGuard('low'));
+bindTap(document.getElementById('btnAttack'),triggerAttack);
 
 window.addEventListener('keydown',e=>{
   if(e.code==='ArrowLeft'||e.code==='KeyA')input.moveBack=true;
@@ -698,9 +736,6 @@ window.addEventListener('keydown',e=>{
 window.addEventListener('keyup',e=>{
   if(e.code==='ArrowLeft'||e.code==='KeyA')input.moveBack=false;
   if(e.code==='ArrowRight'||e.code==='KeyD')input.moveForward=false;
-  if(e.code==='KeyQ')releaseGuard('high');
-  if(e.code==='KeyW')releaseGuard('mid');
-  if(e.code==='KeyE')releaseGuard('low');
 });
 
 showMenu();
