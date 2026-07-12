@@ -102,6 +102,7 @@ const GUARD_DURATION=1000;  // 格擋固定持續時間
 const PERFECT_WINDOW=170;   // 格擋觸發後多快被打中算完美格擋
 
 const ACTIVE_DURATION=130;  // 敵人攻擊判定時間
+const ENEMY_ATTACK_RANGE=145; // 敵人攻擊有效距離，超出則閃避
 const STUN_DURATION=800;
 const PLAYER_HURT_DURATION=450;
 const KNOCKBACK=45;
@@ -259,6 +260,11 @@ function checkEnemyDeath(){
 }
 
 function resolveEnemyHit(t){
+  const dist=Math.abs(enemy.x-player.x);
+  if(dist>ENEMY_ATTACK_RANGE){
+    spawnEffect('閃避!',player.x,player.y-70,'#b0bec5');
+    return;
+  }
   const guarding = player.state==='guarding' && player.guardLane===enemy.attackLane;
   if(guarding){
     const elapsed=t-player.guardStart;
@@ -418,7 +424,6 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
   ctx.strokeStyle=color.limb;ctx.lineWidth=8;ctx.lineCap='round';
   const backArmGuard = pose.startsWith('guard');
   ctx.beginPath();ctx.moveTo(-9,-32);ctx.lineTo(-18,-14+(backArmGuard?-8:0));ctx.stroke();
-  // off-hand raised as extra visual cue for guard
   if(backArmGuard){
     ctx.beginPath();ctx.arc(-19,-24,6,0,Math.PI*2);ctx.fillStyle=color.limb;ctx.fill();
   }
@@ -707,7 +712,7 @@ function showMenu(){
     grid.appendChild(b);
   }
   document.getElementById('overlayTitle').textContent='格擋之刃';
-  document.getElementById('overlayText').textContent='點擊格擋鍵會立即進入該方向防禦姿態並持續 1 秒（此時無法攻擊）；斬擊有前後搖，出手前後都無法格擋。挑選一關開始吧。';
+  document.getElementById('overlayText').textContent='點擊格擋鍵會立即進入該方向防禦姿態並持續 1 秒（此時無法攻擊）；斬擊有前後搖，出手前後都無法格擋。敵人攻擊有固定範圍，及時後退可直接閃避。挑選一關開始吧。';
   document.getElementById('overlayButtons').innerHTML='';
   document.getElementById('overlay').classList.remove('hidden');
 }
