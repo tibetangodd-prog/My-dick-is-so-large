@@ -18,8 +18,14 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
-      - name: Install Cordova
-        run: npm install -g cordova
+      - name: Install Cordova and cordova-res
+        run: npm install -g cordova cordova-res
+
+      - name: Prepare source icon
+        run: mkdir -p resources && cp icon.png resources/icon.png
+
+      - name: Generate Android icons from custom image
+        run: cordova-res android --type icon --skip-config --copy
 
       - name: Add Android platform
         run: cordova platform add android
