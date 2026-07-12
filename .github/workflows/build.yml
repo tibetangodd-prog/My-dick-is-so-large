@@ -21,6 +21,12 @@ jobs:
       - name: Install Cordova and cordova-res
         run: npm install -g cordova cordova-res
 
+      - name: Init npm project
+        run: |
+          if [ ! -f package.json ]; then
+            npm init -y
+          fi
+
       - name: Prepare source icon
         run: mkdir -p resources && cp icon.png resources/icon.png
 
