@@ -27,11 +27,17 @@ jobs:
             npm init -y
           fi
 
+      - name: Remove stray android folder if present
+        run: rm -rf android
+
       - name: Prepare source icon
         run: mkdir -p resources && cp icon.png resources/icon.png
 
       - name: Generate Android icons from custom image
         run: cordova-res android --type icon --skip-config --copy
+
+      - name: List repo root for debugging
+        run: ls -la
 
       - name: Add Android platform
         run: cordova platform add android@13.0.0
