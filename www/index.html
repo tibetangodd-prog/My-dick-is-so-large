@@ -1,0 +1,441 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+<title>格擋之刃</title>
+<style>
+  html,body{margin:0;padding:0;background:#0d0f14;color:#eee;font-family:sans-serif;overflow:hidden;height:100%;}
+  #app{display:flex;flex-direction:column;height:100%;}
+  #hud{padding:6px 10px;display:flex;justify-content:space-between;align-items:center;font-size:14px;}
+  #hpRow{display:flex;gap:16px;align-items:center;}
+  .hearts span, .bar span{margin-right:4px;}
+  #playerHearts{display:inline-flex;gap:2px;}
+  .heart{width:14px;height:14px;border-radius:3px;background:#333;display:inline-block;}
+  .heart.full{background:#ff5252;}
+  #enemyHp .bar{width:120px;height:10px;background:#333;border-radius:5px;overflow:hidden;display:inline-block;vertical-align:middle;}
+  #enemyHpFill{height:100%;background:#ef5350;width:100%;}
+  #gameWrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;}
+  canvas{width:100%;max-height:100%;background:#1b1f2a;touch-action:none;}
+  #controls{display:flex;justify-content:space-between;padding:8px;gap:8px;}
+  #moveControls, #actionControls{display:flex;gap:8px;}
+  #actionControls{flex-wrap:wrap;max-width:260px;}
+  button{border:none;border-radius:10px;padding:14px 10px;font-size:14px;font-weight:bold;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none;}
+  #moveControls button{background:#37474f;min-width:64px;}
+  .guardBtn.high{background:#c62828;}
+  .guardBtn.mid{background:#f9a825;color:#222;}
+  .guardBtn.low{background:#1565c0;}
+  #btnAttack{background:#ff9100;color:#222;flex-basis:100%;}
+  button:active{filter:brightness(1.3);}
+  #overlay{position:absolute;inset:0;background:rgba(0,0,0,0.85);display:flex;align-items:center;justify-content:center;z-index:10;}
+  #overlay.hidden{display:none;}
+  #overlayBox{max-width:90%;text-align:center;}
+  #overlayBox h1{margin-bottom:4px;}
+  #overlayBox p{color:#bbb;font-size:13px;margin-bottom:14px;}
+  #levelSelectGrid{display:grid;grid-template-columns:repeat(6,1fr);gap:6px;max-width:360px;margin:0 auto 14px;}
+  #levelSelectGrid button{background:#2a3140;padding:10px 0;font-size:13px;}
+  #levelSelectGrid button.locked{background:#1a1e26;color:#555;}
+  #overlayButtons{display:flex;gap:10px;justify-content:center;}
+  #overlayButtons button{background:#2e7d32;padding:12px 22px;}
+</style>
+</head>
+<body>
+<div id="app">
+  <div id="hud">
+    <div id="levelLabel">LEVEL 1</div>
+    <div id="hpRow">
+      <div id="playerHp"><span>你</span> <span id="playerHearts"></span></div>
+      <div id="enemyHp"><span>敵</span> <span class="bar"><span id="enemyHpFill"></span></span></div>
+    </div>
+  </div>
+  <div id="gameWrap"><canvas id="game" width="800" height="360"></canvas></div>
+  <div id="controls">
+    <div id="moveControls">
+      <button id="btnBack">◀後退</button>
+      <button id="btnForward">前進▶</button>
+    </div>
+    <div id="actionControls">
+      <button id="btnHigh" class="guardBtn high">上格擋</button>
+      <button id="btnMid" class="guardBtn mid">中格擋</button>
+      <button id="btnLow" class="guardBtn low">下格擋</button>
+      <button id="btnAttack">斬 擊</button>
+    </div>
+  </div>
+  <div id="overlay">
+    <div id="overlayBox">
+      <h1 id="overlayTitle">格擋之刃</h1>
+      <p id="overlayText">看破敵人斬擊的前搖，時機精準即可完美格擋反傷；擋錯或不擋則會被擊退扣血。</p>
+      <div id="levelSelectGrid"></div>
+      <div id="overlayButtons"></div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+"use strict";
+const canvas=document.getElementById('game');
+const ctx=canvas.getContext('2d');
+const CANVAS_W=800, CANVAS_H=360;
+const PLAYER_MIN_X=50, PLAYER_MAX_X=340;
+const PLAYER_SPEED=0.28;
+const FOLLOW_OFFSET=110;
+const MELEE_RANGE=130;
+const ATTACK_STARTUP=90, ATTACK_ACTIVE=110, ATTACK_RECOVER=260;
+const ACTIVE_DURATION=130;
+const PERFECT_WINDOW=170;
+const STUN_DURATION=800;
+const PLAYER_HURT_DURATION=450;
+const KNOCKBACK=45;
+
+function clamp(v,a,b){return Math.max(a,Math.min(b,v));}
+function laneColor(l){return l==='high'?'#ef5350':l==='mid'?'#ffca28':'#42a5f5';}
+function laneLabel(l){return l==='high'?'上':l==='mid'?'中':'下';}
+
+function getLevelConfig(lv){
+  return {
+    telegraph: Math.max(110, 900 - lv*38),
+    idleWait: Math.max(260, 1500 - lv*42),
+    recover: Math.max(180, 600 - lv*13),
+    comboChance: Math.min(1, Math.max(0,(lv-6)*0.05)),
+    hp: 3 + Math.floor(lv/2),
+    approachSpeed: 0.3 + lv*0.015
+  };
+}
+
+const state={ screen:'menu', level:1, maxUnlocked: parseInt(localStorage.getItem('parrygame_maxlevel')||'1',10) };
+
+const player={
+  x:150,y:280,hp:3,maxHp:3,state:'idle',
+  hurtUntil:0,
+  attackStartupEnd:0,attackActiveEnd:0,attackRecoverEnd:0,attackCooldownUntil:0,hasHitThisSwing:false,
+  guardLane:null,guardHoldStart:0,
+  guardActive:{high:false,mid:false,low:false}
+};
+
+const enemy={
+  x:500,y:280,hp:3,maxHp:3,state:'chase',timer:0,phaseEnd:0,attackLane:null,cfg:null
+};
+
+const input={moveBack:false,moveForward:false};
+let effects=[];
+
+function spawnEffect(text,x,y,color){
+  effects.push({text,x,y,color,start:performance.now(),duration:700});
+}
+
+function pressGuard(lane){
+  if(player.guardActive[lane])return;
+  player.guardActive[lane]=true;
+  player.guardLane=lane;
+  player.guardHoldStart=performance.now();
+}
+function releaseGuard(lane){
+  player.guardActive[lane]=false;
+  if(player.guardLane===lane){
+    const remain=['high','mid','low'].find(l=>player.guardActive[l]);
+    player.guardLane=remain||null;
+    if(remain)player.guardHoldStart=performance.now();
+  }
+}
+function triggerAttack(){
+  if(state.screen!=='playing')return;
+  if(player.state==='hurt'||player.state==='attacking')return;
+  const t=performance.now();
+  if(t<player.attackCooldownUntil)return;
+  player.state='attacking';
+  player.hasHitThisSwing=false;
+  player.attackStartupEnd=t+ATTACK_STARTUP;
+  player.attackActiveEnd=player.attackStartupEnd+ATTACK_ACTIVE;
+  player.attackRecoverEnd=player.attackActiveEnd+ATTACK_RECOVER;
+  player.attackCooldownUntil=player.attackRecoverEnd;
+}
+
+function damagePlayer(){
+  if(state.screen!=='playing')return;
+  player.hp--;
+  player.state='hurt';
+  player.hurtUntil=performance.now()+PLAYER_HURT_DURATION;
+  const dir = player.x<enemy.x?-1:1;
+  player.x=clamp(player.x+dir*KNOCKBACK,PLAYER_MIN_X,PLAYER_MAX_X);
+  if(player.hp<=0)playerDies();
+}
+function checkEnemyDeath(){
+  if(enemy.hp<=0&&enemy.state!=='dead'){enemyDies();return true;}
+  return false;
+}
+
+function resolveEnemyHit(t){
+  const guarding = player.guardLane===enemy.attackLane && player.state==='idle';
+  if(guarding){
+    const held=t-player.guardHoldStart;
+    if(held<=PERFECT_WINDOW){
+      enemy.hp--;
+      spawnEffect('完美格擋!',player.x,player.y-70,'#69f0ae');
+      if(checkEnemyDeath())return;
+      enemy.state='stunned';enemy.phaseEnd=t+STUN_DURATION;
+    } else {
+      spawnEffect('格擋',player.x,player.y-70,'#90caf9');
+    }
+  } else {
+    spawnEffect('中招!',player.x,player.y-70,'#ff5252');
+    damagePlayer();
+  }
+}
+
+function startEnemyWindup(t){
+  const lanes=['high','mid','low'];
+  enemy.attackLane=lanes[Math.floor(Math.random()*3)];
+  enemy.state='windup';
+  enemy.phaseEnd=t+enemy.cfg.telegraph;
+}
+
+function updateEnemy(dt,t){
+  if(enemy.state==='dead')return;
+  const cfg=enemy.cfg;
+  if(enemy.state!=='windup'&&enemy.state!=='active'){
+    const targetX=player.x+FOLLOW_OFFSET;
+    const diff=targetX-enemy.x;
+    const maxStep=cfg.approachSpeed*dt;
+    if(Math.abs(diff)<=maxStep)enemy.x=targetX;else enemy.x+=Math.sign(diff)*maxStep;
+    enemy.x=clamp(enemy.x,player.x+MELEE_RANGE*0.5,780);
+  }
+  switch(enemy.state){
+    case 'chase':
+      enemy.timer-=dt;
+      if(enemy.timer<=0)startEnemyWindup(t);
+      break;
+    case 'windup':
+      if(t>=enemy.phaseEnd){
+        enemy.state='active';enemy.phaseEnd=t+ACTIVE_DURATION;
+        resolveEnemyHit(t);
+      }
+      break;
+    case 'active':
+      if(t>=enemy.phaseEnd){enemy.state='recover';enemy.phaseEnd=t+cfg.recover;}
+      break;
+    case 'recover':
+      if(t>=enemy.phaseEnd){
+        if(state.screen==='playing'&&Math.random()<cfg.comboChance){startEnemyWindup(t);}
+        else{enemy.state='chase';enemy.timer=cfg.idleWait*(0.8+Math.random()*0.4);}
+      }
+      break;
+    case 'stunned':
+      if(t>=enemy.phaseEnd){enemy.state='chase';enemy.timer=cfg.idleWait*0.6;}
+      break;
+  }
+}
+
+function update(dt,t){
+  if(player.state!=='hurt'&&player.state!=='attacking'){
+    let dir=0;
+    if(input.moveBack)dir-=1;
+    if(input.moveForward)dir+=1;
+    player.x=clamp(player.x+dir*PLAYER_SPEED*dt,PLAYER_MIN_X,PLAYER_MAX_X);
+  }
+  if(player.state==='attacking'){
+    if(t<player.attackStartupEnd){}
+    else if(t<player.attackActiveEnd){
+      if(!player.hasHitThisSwing){
+        const dist=Math.abs(enemy.x-player.x);
+        if(dist<=MELEE_RANGE&&enemy.state!=='dead'){
+          enemy.hp--;player.hasHitThisSwing=true;
+          spawnEffect('斬中!',enemy.x,enemy.y-60,'#ffd54f');
+          if(enemy.state==='active'){damagePlayer();}
+          checkEnemyDeath();
+        }
+      }
+    } else if(t<player.attackRecoverEnd){}
+    else{player.state='idle';}
+  } else if(player.state==='hurt'){
+    if(t>=player.hurtUntil)player.state='idle';
+  }
+  if(state.screen!=='playing')return;
+  updateEnemy(dt,t);
+}
+
+function drawBackground(){
+  const g=ctx.createLinearGradient(0,0,0,CANVAS_H);
+  g.addColorStop(0,'#232a3a');g.addColorStop(1,'#12151d');
+  ctx.fillStyle=g;ctx.fillRect(0,0,CANVAS_W,CANVAS_H);
+  ctx.strokeStyle='#3a4358';ctx.lineWidth=3;
+  ctx.beginPath();ctx.moveTo(0,300);ctx.lineTo(CANVAS_W,300);ctx.stroke();
+}
+function drawPlayer(t){
+  ctx.save();ctx.translate(player.x,player.y);
+  ctx.fillStyle=player.state==='hurt'?'#ff8a80':'#64b5f6';
+  ctx.fillRect(-18,-70,36,70);
+  ctx.beginPath();ctx.arc(0,-82,14,0,Math.PI*2);ctx.fillStyle='#ffe0b2';ctx.fill();
+  const laneY={high:-95,mid:-55,low:-15};
+  ['high','mid','low'].forEach(l=>{
+    ctx.beginPath();
+    ctx.fillStyle=player.guardLane===l?laneColor(l):'rgba(255,255,255,0.15)';
+    ctx.arc(28,laneY[l],8,0,Math.PI*2);ctx.fill();
+  });
+  if(player.state==='attacking'&&t>=player.attackStartupEnd&&t<player.attackActiveEnd){
+    ctx.strokeStyle='#fff';ctx.lineWidth=6;
+    ctx.beginPath();ctx.arc(30,-50,40,-0.8,0.8);ctx.stroke();
+  }
+  ctx.restore();
+}
+function drawEnemy(t){
+  ctx.save();ctx.translate(enemy.x,enemy.y);
+  ctx.fillStyle=enemy.state==='stunned'?'#ffe57f':'#e57373';
+  ctx.fillRect(-18,-70,36,70);
+  ctx.beginPath();ctx.arc(0,-82,14,0,Math.PI*2);ctx.fillStyle='#d7ccc8';ctx.fill();
+  if(enemy.state==='windup'){
+    const remain=enemy.phaseEnd-t;
+    const frac=Math.max(0,remain/enemy.cfg.telegraph);
+    ctx.save();ctx.translate(0,-118);ctx.scale(0.6+frac*0.8,0.6+frac*0.8);
+    ctx.beginPath();ctx.arc(0,0,20,0,Math.PI*2);ctx.fillStyle=laneColor(enemy.attackLane);ctx.fill();
+    ctx.fillStyle='#000';ctx.font='bold 18px sans-serif';ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillText(laneLabel(enemy.attackLane),0,1);
+    ctx.restore();
+  }
+  if(enemy.state==='stunned'){
+    ctx.fillStyle='#fff176';ctx.font='bold 16px sans-serif';ctx.textAlign='center';
+    ctx.fillText('★破綻★',0,-110);
+  }
+  ctx.restore();
+}
+function drawEffects(t){
+  effects=effects.filter(e=>t-e.start<e.duration);
+  effects.forEach(e=>{
+    const age=t-e.start;const a=1-age/e.duration;
+    ctx.save();ctx.globalAlpha=Math.max(0,a);
+    ctx.fillStyle=e.color;ctx.font='bold 18px sans-serif';ctx.textAlign='center';
+    ctx.fillText(e.text,e.x,e.y-age*0.05);
+    ctx.restore();
+  });
+}
+function updateHUD(){
+  document.getElementById('levelLabel').textContent='LEVEL '+state.level;
+  const hearts=document.getElementById('playerHearts');
+  hearts.innerHTML='';
+  for(let i=0;i<player.maxHp;i++){
+    const d=document.createElement('span');
+    d.className='heart'+(i<player.hp?' full':'');
+    hearts.appendChild(d);
+  }
+  const pct=enemy.maxHp?Math.max(0,enemy.hp)/enemy.maxHp*100:0;
+  document.getElementById('enemyHpFill').style.width=pct+'%';
+}
+function render(t){
+  ctx.clearRect(0,0,CANVAS_W,CANVAS_H);
+  drawBackground();
+  if(state.screen==='playing'||state.screen==='cleared'||state.screen==='dead'){
+    drawPlayer(t);drawEnemy(t);drawEffects(t);
+  }
+  updateHUD();
+}
+
+let lastTime=0;
+function loop(t){
+  if(!lastTime)lastTime=t;
+  const dt=t-lastTime;lastTime=t;
+  if(state.screen==='playing')update(dt,t);
+  render(t);
+  requestAnimationFrame(loop);
+}
+requestAnimationFrame(loop);
+
+function startLevel(n){
+  state.level=n;
+  const cfg=getLevelConfig(n);
+  player.hp=player.maxHp=3;
+  player.x=150;player.state='idle';player.guardLane=null;
+  player.guardActive={high:false,mid:false,low:false};
+  enemy.cfg=cfg;enemy.hp=cfg.hp;enemy.maxHp=cfg.hp;
+  enemy.x=player.x+FOLLOW_OFFSET;enemy.state='chase';enemy.timer=cfg.idleWait;
+  effects=[];
+  state.screen='playing';
+  hideOverlay();
+}
+function playerDies(){
+  state.screen='dead';
+  showOverlay('被擊敗','第 '+state.level+' 關... 看清前搖，抓準時機再出手！',[
+    {label:'重試',action:()=>startLevel(state.level)},
+    {label:'返回選單',action:showMenu}
+  ]);
+}
+function enemyDies(){
+  enemy.state='dead';
+  if(state.level>=state.maxUnlocked){
+    state.maxUnlocked=Math.min(31,state.level+1);
+    localStorage.setItem('parrygame_maxlevel',String(state.maxUnlocked));
+  }
+  state.screen='cleared';
+  if(state.level>=30){
+    showOverlay('恭喜全破！','你已完成全部 30 關的試煉！',[{label:'返回選單',action:showMenu}]);
+  } else {
+    showOverlay('關卡過關','第 '+state.level+' 關 完成！',[
+      {label:'下一關',action:()=>startLevel(state.level+1)},
+      {label:'返回選單',action:showMenu}
+    ]);
+  }
+}
+
+function hideOverlay(){document.getElementById('overlay').classList.add('hidden');}
+function showOverlay(title,text,buttons){
+  document.getElementById('overlayTitle').textContent=title;
+  document.getElementById('overlayText').textContent=text;
+  const grid=document.getElementById('levelSelectGrid');
+  grid.innerHTML='';
+  const btnArea=document.getElementById('overlayButtons');
+  btnArea.innerHTML='';
+  buttons.forEach(b=>{
+    const el=document.createElement('button');
+    el.textContent=b.label;
+    el.onclick=b.action;
+    btnArea.appendChild(el);
+  });
+  document.getElementById('overlay').classList.remove('hidden');
+}
+function showMenu(){
+  state.screen='menu';
+  const grid=document.getElementById('levelSelectGrid');
+  grid.innerHTML='';
+  for(let i=1;i<=30;i++){
+    const b=document.createElement('button');
+    b.textContent=i;
+    if(i>state.maxUnlocked){b.className='locked';b.disabled=true;}
+    else b.onclick=()=>startLevel(i);
+    grid.appendChild(b);
+  }
+  document.getElementById('overlayTitle').textContent='格擋之刃';
+  document.getElementById('overlayText').textContent='看破敵人斬擊的前搖，時機精準即可完美格擋反傷；擋錯或不擋則會被擊退扣血。';
+  document.getElementById('overlayButtons').innerHTML='';
+  document.getElementById('overlay').classList.remove('hidden');
+}
+
+function bindHold(el,onDown,onUp){
+  el.addEventListener('pointerdown',e=>{e.preventDefault();onDown();});
+  ['pointerup','pointercancel','pointerleave'].forEach(ev=>el.addEventListener(ev,()=>onUp()));
+}
+bindHold(document.getElementById('btnBack'),()=>input.moveBack=true,()=>input.moveBack=false);
+bindHold(document.getElementById('btnForward'),()=>input.moveForward=true,()=>input.moveForward=false);
+bindHold(document.getElementById('btnHigh'),()=>pressGuard('high'),()=>releaseGuard('high'));
+bindHold(document.getElementById('btnMid'),()=>pressGuard('mid'),()=>releaseGuard('mid'));
+bindHold(document.getElementById('btnLow'),()=>pressGuard('low'),()=>releaseGuard('low'));
+document.getElementById('btnAttack').addEventListener('pointerdown',e=>{e.preventDefault();triggerAttack();});
+
+window.addEventListener('keydown',e=>{
+  if(e.code==='ArrowLeft'||e.code==='KeyA')input.moveBack=true;
+  if(e.code==='ArrowRight'||e.code==='KeyD')input.moveForward=true;
+  if(e.code==='KeyQ')pressGuard('high');
+  if(e.code==='KeyW')pressGuard('mid');
+  if(e.code==='KeyE')pressGuard('low');
+  if(e.code==='Space'||e.code==='KeyF'){e.preventDefault();triggerAttack();}
+});
+window.addEventListener('keyup',e=>{
+  if(e.code==='ArrowLeft'||e.code==='KeyA')input.moveBack=false;
+  if(e.code==='ArrowRight'||e.code==='KeyD')input.moveForward=false;
+  if(e.code==='KeyQ')releaseGuard('high');
+  if(e.code==='KeyW')releaseGuard('mid');
+  if(e.code==='KeyE')releaseGuard('low');
+});
+
+showMenu();
+})();
+</script>
+</body>
+</html>
