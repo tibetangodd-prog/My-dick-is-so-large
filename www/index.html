@@ -16,9 +16,10 @@
   #enemyHp .bar{width:120px;height:10px;background:#333;border-radius:5px;overflow:hidden;display:inline-block;vertical-align:middle;}
   #enemyHpFill{height:100%;background:linear-gradient(90deg,#ff8a65,#ef5350);width:100%;transition:width .15s;}
   #enemyHpNum{font-size:12px;color:#ffab91;min-width:34px;}
+  #btnSettings{background:#37474f;padding:6px 12px;border-radius:8px;font-size:16px;color:#fff;border:none;}
   #gameWrap{flex:1;display:flex;align-items:center;justify-content:center;min-height:0;position:relative;}
   canvas{width:100%;max-height:100%;background:#1b1f2a;touch-action:none;}
-  #controls{display:flex;justify-content:space-between;padding:8px;gap:8px;}
+  #controls{display:flex;justify-content:space-between;padding:8px;gap:8px;position:relative;}
   #moveControls, #actionControls{display:flex;gap:8px;}
   #actionControls{flex-wrap:wrap;max-width:260px;}
   button{border:none;border-radius:10px;padding:14px 10px;font-size:14px;font-weight:bold;color:#fff;touch-action:none;user-select:none;-webkit-user-select:none;}
@@ -51,6 +52,32 @@
   #overlayButtons{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
   #overlayButtons button{background:#2e7d32;padding:12px 22px;border-radius:10px;}
   #overlayButtons button.secondary{background:#37474f;}
+  #overlayButtons button.settingsLink{background:#37474f;}
+
+  /* Settings overlay */
+  #settingsOverlay{position:absolute;inset:0;background:rgba(8,9,13,0.97);z-index:30;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;}
+  #settingsOverlay.hidden{display:none;}
+  #settingsBox{width:92%;max-width:480px;background:#1b2029;border-radius:14px;padding:16px;margin:16px auto;}
+  .settingsHeader{display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;}
+  .settingsHeader h2{margin:0;font-size:18px;}
+  #btnCloseSettings{background:#37474f;border-radius:8px;padding:6px 12px;font-size:14px;}
+  .settingsTabs{display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;}
+  .tabBtn{background:#252b38;padding:8px 6px;border-radius:8px;font-size:11px;flex:1;min-width:70px;color:#ccc;}
+  .tabBtn.active{background:#ff9100;color:#221200;}
+  .tabPane.hidden{display:none;}
+  .langOption{background:#252b38;padding:14px;border-radius:10px;margin:4px;font-size:14px;width:calc(50% - 16px);}
+  .langOption.selected{outline:2px solid #ff9100;}
+  .pickGrid{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;}
+  .pickCard{background:#252b38;border-radius:10px;padding:8px;display:flex;flex-direction:column;align-items:center;gap:6px;}
+  .pickCard.selected{outline:2px solid #ff9100;}
+  .pickCard .swatch{width:36px;height:36px;border-radius:8px;}
+  .pickCard .pickName{font-size:10px;text-align:center;line-height:1.2;}
+  .hint{font-size:12px;color:#9aa0ab;margin-bottom:10px;}
+  .layoutRow{background:#252b38;border-radius:10px;padding:10px;margin-bottom:10px;}
+  .layoutRowTitle{font-size:13px;font-weight:bold;margin-bottom:6px;}
+  .layoutRow label{display:block;font-size:11px;color:#9aa0ab;margin-bottom:8px;}
+  .layoutRow input[type=range]{width:100%;}
+  #btnResetLayout{background:#616161;width:100%;margin-top:4px;}
 </style>
 </head>
 <body>
@@ -58,9 +85,10 @@
   <div id="hud">
     <div id="levelLabel">LEVEL 1</div>
     <div id="hpRow">
-      <div id="playerHp"><span>你</span> <span id="playerHearts"></span></div>
-      <div id="enemyHp"><span>敵</span> <span class="bar"><span id="enemyHpFill"></span></span> <span id="enemyHpNum">3/3</span></div>
+      <div id="playerHp"><span id="playerLabel">你</span> <span id="playerHearts"></span></div>
+      <div id="enemyHp"><span id="enemyLabel">敵</span> <span class="bar"><span id="enemyHpFill"></span></span> <span id="enemyHpNum">3/3</span></div>
     </div>
+    <button id="btnSettings">⚙</button>
   </div>
   <div id="gameWrap"><canvas id="game" width="800" height="360"></canvas></div>
   <div id="controls">
@@ -78,9 +106,38 @@
   <div id="overlay">
     <div id="overlayBox">
       <h1 id="overlayTitle">格擋之刃</h1>
-      <p id="overlayText">點擊格擋鍵立即進入該方向防禦，成功擋下（含完美格擋）會立即解除。斬擊即時觸發但有 10 秒冷卻；敵人前搖時斬擊可打斷其攻擊，其餘時候攻擊會被敵人格擋。</p>
+      <p id="overlayText"></p>
       <div id="levelSelectGrid"></div>
       <div id="overlayButtons"></div>
+    </div>
+  </div>
+  <div id="settingsOverlay" class="hidden">
+    <div id="settingsBox">
+      <div class="settingsHeader">
+        <h2 id="settingsTitle">設定</h2>
+        <button id="btnCloseSettings">✕</button>
+      </div>
+      <div class="settingsTabs">
+        <button class="tabBtn active" data-tab="lang">語言</button>
+        <button class="tabBtn" data-tab="char">人物</button>
+        <button class="tabBtn" data-tab="weapon">武器</button>
+        <button class="tabBtn" data-tab="layout">按鍵配置</button>
+      </div>
+      <div id="tabLang" class="tabPane">
+        <button class="langOption" data-lang="zh">中文</button>
+        <button class="langOption" data-lang="en">English</button>
+      </div>
+      <div id="tabChar" class="tabPane hidden">
+        <div id="charGrid" class="pickGrid"></div>
+      </div>
+      <div id="tabWeapon" class="tabPane hidden">
+        <div id="weaponGrid" class="pickGrid"></div>
+      </div>
+      <div id="tabLayout" class="tabPane hidden">
+        <p class="hint" id="layoutHint"></p>
+        <div id="layoutControls"></div>
+        <button id="btnResetLayout">重置配置</button>
+      </div>
     </div>
   </div>
 </div>
@@ -96,13 +153,13 @@ const PLAYER_SPEED=0.28;
 const FOLLOW_OFFSET=110;
 const MELEE_RANGE=130;
 
-const ATTACK_COOLDOWN=10000;      // 斬擊冷卻時間
-const ATTACK_VISUAL_DURATION=150; // 純視覺揮劍動畫時長，不影響操作
-const GUARD_DURATION=1000;        // 格擋固定持續時間（若未被成功防禦觸發，滿時間自動解除）
-const PERFECT_WINDOW=170;         // 格擋觸發後多快被打中算完美格擋
+const ATTACK_COOLDOWN=10000;
+const ATTACK_VISUAL_DURATION=150;
+const GUARD_DURATION=1000;
+const PERFECT_WINDOW=170;
 
-const ACTIVE_DURATION=130;    // 敵人攻擊判定時間
-const ENEMY_ATTACK_RANGE=145; // 敵人攻擊有效距離，超出則閃避
+const ACTIVE_DURATION=130;
+const ENEMY_ATTACK_RANGE=145;
 const STUN_DURATION=800;
 const PLAYER_HURT_DURATION=450;
 const KNOCKBACK=45;
@@ -126,10 +183,102 @@ function getLevelConfig(lv){
   };
 }
 
-const state={ screen:'menu', level:1, maxUnlocked: parseInt(localStorage.getItem('parrygame_maxlevel')||'1',10) };
+// ===================== 語言 =====================
+const LANG = {
+  zh: {
+    title:'格擋之刃',
+    instructions:'點擊格擋鍵立即進入該方向防禦，成功擋下（含完美格擋）會立即解除。斬擊即時觸發但有 10 秒冷卻；敵人前搖時斬擊可打斷其攻擊，其餘時候攻擊會被敵人格擋。第 30 關的敵人攻擊沒有任何預警。',
+    you:'你', enemy:'敵',
+    guardHigh:'上格擋', guardMid:'中格擋', guardLow:'下格擋', attack:'斬 擊',
+    back:'◀後退', forward:'前進▶',
+    cleared:'已通關', challenge:'挑戰', locked:'鎖定', final:'終極',
+    levelPrefix:'LEVEL ', finalSuffix:' ★終極決戰★',
+    defeatTitle:'被擊敗',
+    defeatFinal:'最終決戰... 敵人的斬擊沒有任何預警，這是真正的試煉。',
+    defeatNormal:(lv)=>'第 '+lv+' 關... 善用打斷機制，抓準敵人前搖的瞬間出手！',
+    retry:'重試', menu:'返回選單',
+    clearTitle:'關卡過關', clearText:(lv)=>'第 '+lv+' 關 完成！',
+    nextLevel:'下一關',
+    allClearTitle:'恭喜全破！', allClearText:'你已完成全部 30 關的試煉，擊敗了毫無預警的終極對手！',
+    settings:'設定', close:'關閉',
+    tabLang:'語言', tabChar:'人物', tabWeapon:'武器', tabLayout:'按鍵配置',
+    chinese:'中文', english:'English',
+    layoutHint:'調整每個按鍵的位置與大小（即時預覽）',
+    posX:'水平位移', posY:'垂直位移', size:'大小',
+    resetLayout:'重置配置',
+    perfectGuard:'完美格擋!', guardText:'格擋', hit:'中招!', dodge:'閃避!', interrupt:'打斷!', slash:'斬中!', blocked:'被格擋', miss:'落空'
+  },
+  en: {
+    title:'Blade of Parry',
+    instructions:'Tap a guard button to instantly enter that stance; a successful block (including a perfect parry) ends it immediately. Attacks trigger instantly but have a 10s cooldown. Hitting an enemy during its windup interrupts the attack; otherwise it will be blocked. Level 30 enemy attacks have no warning at all.',
+    you:'You', enemy:'Enemy',
+    guardHigh:'High Guard', guardMid:'Mid Guard', guardLow:'Low Guard', attack:'Attack',
+    back:'◀ Back', forward:'Forward ▶',
+    cleared:'Cleared', challenge:'Play', locked:'Locked', final:'Final',
+    levelPrefix:'LEVEL ', finalSuffix:' ★FINAL BATTLE★',
+    defeatTitle:'Defeated',
+    defeatFinal:'Final battle... the enemy strikes without any warning. A true trial.',
+    defeatNormal:(lv)=>'Level '+lv+'... read the windup and counter the instant it ends!',
+    retry:'Retry', menu:'Main Menu',
+    clearTitle:'Level Cleared', clearText:(lv)=>'Level '+lv+' complete!',
+    nextLevel:'Next Level',
+    allClearTitle:'All Clear!', allClearText:'You have conquered all 30 levels, including the warningless final boss!',
+    settings:'Settings', close:'Close',
+    tabLang:'Language', tabChar:'Character', tabWeapon:'Weapon', tabLayout:'Button Layout',
+    chinese:'中文', english:'English',
+    layoutHint:"Adjust each button's position and size (live preview)",
+    posX:'Horizontal', posY:'Vertical', size:'Size',
+    resetLayout:'Reset Layout',
+    perfectGuard:'PERFECT!', guardText:'Blocked', hit:'Hit!', dodge:'Dodge!', interrupt:'Interrupt!', slash:'Slash!', blocked:'Parried', miss:'Miss'
+  }
+};
+
+// ===================== 人物 / 武器 =====================
+const CHARACTERS = [
+  {id:'c1', name:{zh:'蒼藍劍士',en:'Azure Swordsman'}, skin:'#ffccab', body:'#3b6fb0', bodyHi:'#5c93d6', limb:'#274a73', crest:'#ffca28'},
+  {id:'c2', name:{zh:'赤紅武士',en:'Crimson Samurai'}, skin:'#e2b8a3', body:'#b71c1c', bodyHi:'#e53935', limb:'#5c1010', crest:'#ffd54f'},
+  {id:'c3', name:{zh:'翠綠遊俠',en:'Emerald Ranger'}, skin:'#f0c9a0', body:'#2e7d32', bodyHi:'#66bb6a', limb:'#1b4d1e', crest:'#c5e1a5'},
+  {id:'c4', name:{zh:'紫魅劍客',en:'Violet Duelist'}, skin:'#e8c3d0', body:'#6a1b9a', bodyHi:'#9c4dcc', limb:'#3e0f5c', crest:'#ce93d8'},
+  {id:'c5', name:{zh:'玄鐵武者',en:'Iron Warrior'}, skin:'#d2a679', body:'#455a64', bodyHi:'#78909c', limb:'#263238', crest:'#b0bec5'},
+  {id:'c6', name:{zh:'金翼聖騎',en:'Golden Paladin'}, skin:'#ffe0b2', body:'#f9a825', bodyHi:'#ffd54f', limb:'#8d6e00', crest:'#ffffff'}
+];
+const WEAPONS = [
+  {id:'w1', name:{zh:'制式長劍',en:'Standard Sword'}, shape:'sword', bladeStart:'#eceff1', bladeEnd:'#fafafa', trail:'rgba(255,255,255,0.9)', particle:'#fff59d'},
+  {id:'w2', name:{zh:'寒冰之劍',en:'Ice Sword'}, shape:'sword', bladeStart:'#80deea', bladeEnd:'#e0f7fa', trail:'rgba(128,222,234,0.9)', particle:'#b2ebf2'},
+  {id:'w3', name:{zh:'烈焰之劍',en:'Flame Sword'}, shape:'sword', bladeStart:'#ff7043', bladeEnd:'#ffccbc', trail:'rgba(255,112,67,0.9)', particle:'#ffab91'},
+  {id:'w4', name:{zh:'戰斧',en:'Battle Axe'}, shape:'axe', bladeStart:'#b0bec5', bladeEnd:'#eceff1', trail:'rgba(207,216,220,0.9)', particle:'#eceff1'},
+  {id:'w5', name:{zh:'影匕首',en:'Shadow Dagger'}, shape:'dagger', bladeStart:'#7e57c2', bladeEnd:'#d1c4e9', trail:'rgba(149,117,205,0.9)', particle:'#b39ddb'},
+  {id:'w6', name:{zh:'雷之槌',en:'Thunder Hammer'}, shape:'hammer', bladeStart:'#fff176', bladeEnd:'#ffee58', trail:'rgba(255,245,157,0.9)', particle:'#fff9c4'}
+];
+
+function defaultLayout(){
+  return {
+    high:{dx:0,dy:0,scale:1},
+    mid:{dx:0,dy:0,scale:1},
+    low:{dx:0,dy:0,scale:1},
+    attack:{dx:0,dy:0,scale:1}
+  };
+}
+const settings = {
+  language: localStorage.getItem('gb_lang') || 'zh',
+  characterId: localStorage.getItem('gb_char') || 'c1',
+  weaponId: localStorage.getItem('gb_weapon') || 'w1',
+  layout: JSON.parse(localStorage.getItem('gb_layout')||'null') || defaultLayout()
+};
+function t(key){ return LANG[settings.language][key]; }
+function getCurrentCharacter(){ return CHARACTERS.find(c=>c.id===settings.characterId) || CHARACTERS[0]; }
+function getCurrentWeapon(){ return WEAPONS.find(w=>w.id===settings.weaponId) || WEAPONS[0]; }
+function saveSettings(){
+  localStorage.setItem('gb_lang', settings.language);
+  localStorage.setItem('gb_char', settings.characterId);
+  localStorage.setItem('gb_weapon', settings.weaponId);
+  localStorage.setItem('gb_layout', JSON.stringify(settings.layout));
+}
+
+const state={ screen:'menu', level:1, maxUnlocked: parseInt(localStorage.getItem('parrygame_maxlevel')||'1',10), settingsOpen:false };
 
 const player={
-  x:150,y:GROUND_Y,facing:1,hp:3,maxHp:3,state:'idle', // idle | guarding | hurt
+  x:150,y:GROUND_Y,facing:1,hp:3,maxHp:3,state:'idle',
   hurtUntil:0,
   attackCooldownUntil:0,attackVisualUntil:0,
   guardLane:null,guardStart:0,guardEnd:0,
@@ -216,7 +365,7 @@ function drawParticles(){
 
 // ---- Player actions ----
 function pressGuard(lane){
-  if(state.screen!=='playing')return;
+  if(state.screen!=='playing'||state.settingsOpen)return;
   if(player.state!=='idle')return;
   const t=performance.now();
   player.state='guarding';
@@ -232,7 +381,7 @@ function cancelGuardSuccess(){
 }
 
 function triggerAttack(){
-  if(state.screen!=='playing')return;
+  if(state.screen!=='playing'||state.settingsOpen)return;
   if(player.state==='guarding'||player.state==='hurt')return;
   const t=performance.now();
   if(t<player.attackCooldownUntil)return;
@@ -243,16 +392,17 @@ function triggerAttack(){
 }
 
 function resolvePlayerAttack(t){
+  const weaponObj=getCurrentWeapon();
   const dist=Math.abs(enemy.x-player.x);
   if(dist>MELEE_RANGE||enemy.state==='dead'){
-    spawnEffect('落空',player.x,player.y-70,'#90a4ae');
+    spawnEffect(t_('miss'),player.x,player.y-70,'#90a4ae');
     return;
   }
   if(enemy.state==='windup'){
     enemy.hp--;
-    spawnEffect('打斷!',enemy.x,enemy.y-60,'#ffd54f');
-    spawnParticles(enemy.x,enemy.y-55,12,{color:'#ff8a65',speed:3.5,life:420,upBias:1});
-    spawnSparkBurst(enemy.x,enemy.y-55,'#fff59d');
+    spawnEffect(t_('interrupt'),enemy.x,enemy.y-60,'#ffd54f');
+    spawnParticles(enemy.x,enemy.y-55,12,{color:weaponObj.particle,speed:3.5,life:420,upBias:1});
+    spawnSparkBurst(enemy.x,enemy.y-55,weaponObj.particle);
     addShake(6,180);
     enemy.attackLane=null;
     if(checkEnemyDeath())return;
@@ -262,31 +412,32 @@ function resolvePlayerAttack(t){
   }
   if(enemy.state==='stunned'){
     enemy.hp--;
-    spawnEffect('斬中!',enemy.x,enemy.y-60,'#ffd54f');
-    spawnParticles(enemy.x,enemy.y-55,12,{color:'#ff8a65',speed:3.5,life:420,upBias:1});
-    spawnSparkBurst(enemy.x,enemy.y-55,'#fff59d');
+    spawnEffect(t_('slash'),enemy.x,enemy.y-60,'#ffd54f');
+    spawnParticles(enemy.x,enemy.y-55,12,{color:weaponObj.particle,speed:3.5,life:420,upBias:1});
+    spawnSparkBurst(enemy.x,enemy.y-55,weaponObj.particle);
     addShake(6,180);
     checkEnemyDeath();
     return;
   }
-  // chase / active / recover: 敵人格擋你的斬擊
-  spawnEffect('被格擋',enemy.x,enemy.y-60,'#b0bec5');
+  spawnEffect(t_('blocked'),enemy.x,enemy.y-60,'#b0bec5');
   spawnSparkBurst(enemy.x,enemy.y-55,'#eceff1');
   addShake(3,120);
 }
+function t_(key){ return t(key); }
 
 function updateButtonStates(){
-  const t=performance.now();
+  const now=performance.now();
   const guardBusy = player.state==='guarding' || player.state==='hurt';
-  ['btnHigh','btnMid','btnLow'].forEach(id=>document.getElementById(id).disabled = state.screen!=='playing' || guardBusy);
+  const disabledBase = state.screen!=='playing' || guardBusy || state.settingsOpen;
+  ['btnHigh','btnMid','btnLow'].forEach(id=>document.getElementById(id).disabled = disabledBase);
   const atkBtn=document.getElementById('btnAttack');
-  const onCooldown = t<player.attackCooldownUntil;
-  atkBtn.disabled = state.screen!=='playing' || guardBusy || onCooldown;
+  const onCooldown = now<player.attackCooldownUntil;
+  atkBtn.disabled = state.screen!=='playing' || guardBusy || onCooldown || state.settingsOpen;
   if(state.screen==='playing' && onCooldown){
-    const remain=Math.max(0,(player.attackCooldownUntil-t)/1000);
-    atkBtn.textContent='斬擊 ('+remain.toFixed(1)+'s)';
+    const remain=Math.max(0,(player.attackCooldownUntil-now)/1000);
+    atkBtn.textContent=t('attack')+' ('+remain.toFixed(1)+'s)';
   } else {
-    atkBtn.textContent='斬 擊';
+    atkBtn.textContent=t('attack');
   }
 }
 
@@ -312,7 +463,7 @@ function checkEnemyDeath(){
 function resolveEnemyHit(t){
   const dist=Math.abs(enemy.x-player.x);
   if(dist>ENEMY_ATTACK_RANGE){
-    spawnEffect('閃避!',player.x,player.y-70,'#b0bec5');
+    spawnEffect(t_('dodge'),player.x,player.y-70,'#b0bec5');
     return;
   }
   const guarding = player.state==='guarding' && player.guardLane===enemy.attackLane;
@@ -320,7 +471,7 @@ function resolveEnemyHit(t){
     const elapsed=t-player.guardStart;
     if(elapsed<=PERFECT_WINDOW){
       enemy.hp--;
-      spawnEffect('完美格擋!',player.x,player.y-70,'#69f0ae');
+      spawnEffect(t_('perfectGuard'),player.x,player.y-70,'#69f0ae');
       spawnRing(player.x,player.y-55,'#69f0ae');
       spawnSparkBurst(player.x,player.y-55,'#b9f6ca');
       addShake(10,260);
@@ -329,13 +480,13 @@ function resolveEnemyHit(t){
       if(checkEnemyDeath())return;
       enemy.state='stunned';enemy.phaseEnd=t+STUN_DURATION;
     } else {
-      spawnEffect('格擋',player.x,player.y-70,'#90caf9');
+      spawnEffect(t_('guardText'),player.x,player.y-70,'#90caf9');
       spawnSparkBurst(player.x,player.y-55,'#e3f2fd');
       addShake(4,150);
       cancelGuardSuccess();
     }
   } else {
-    spawnEffect('中招!',player.x,player.y-70,'#ff5252');
+    spawnEffect(t_('hit'),player.x,player.y-70,'#ff5252');
     damagePlayer();
   }
 }
@@ -344,7 +495,6 @@ function startEnemyWindup(t){
   const lanes=['high','mid','low'];
   enemy.attackLane=lanes[Math.floor(Math.random()*3)];
   if(enemy.cfg.noTelegraph){
-    // 無前搖：直接進入攻擊生效判定，玩家沒有任何預警
     enemy.state='active';
     enemy.phaseEnd=t+ACTIVE_DURATION;
     resolveEnemyHit(t);
@@ -429,7 +579,31 @@ function drawBackground(){
   ctx.beginPath();ctx.moveTo(0,GROUND_Y);ctx.lineTo(CANVAS_W,GROUND_Y);ctx.stroke();
 }
 
-function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
+function drawWeaponHead(weapon,swordLen){
+  const bladeGrad=ctx.createLinearGradient(0,0,0,-swordLen);
+  bladeGrad.addColorStop(0,weapon.bladeStart);bladeGrad.addColorStop(1,weapon.bladeEnd);
+  ctx.fillStyle=bladeGrad;
+  if(weapon.shape==='axe'){
+    ctx.beginPath();
+    ctx.moveTo(-3,4);ctx.lineTo(3,4);ctx.lineTo(3,-18);
+    ctx.lineTo(14,-22);ctx.lineTo(10,-34);ctx.lineTo(3,-30);ctx.lineTo(3,-34);ctx.lineTo(-3,-34);ctx.lineTo(-3,-30);
+    ctx.lineTo(-10,-34);ctx.lineTo(-14,-22);ctx.lineTo(-3,-18);
+    ctx.closePath();ctx.fill();
+  } else if(weapon.shape==='hammer'){
+    ctx.beginPath();ctx.moveTo(-3,4);ctx.lineTo(3,4);ctx.lineTo(3,-22);ctx.lineTo(-3,-22);ctx.closePath();ctx.fill();
+    ctx.fillRect(-10,-34,20,14);
+  } else if(weapon.shape==='dagger'){
+    ctx.beginPath();
+    ctx.moveTo(-3,4);ctx.lineTo(3,4);ctx.lineTo(2,-18);ctx.lineTo(0,-24);ctx.lineTo(-2,-18);
+    ctx.closePath();ctx.fill();
+  } else {
+    ctx.beginPath();
+    ctx.moveTo(-3,4);ctx.lineTo(3,4);ctx.lineTo(2,-swordLen);ctx.lineTo(0,-swordLen-6);ctx.lineTo(-2,-swordLen);
+    ctx.closePath();ctx.fill();
+  }
+}
+
+function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color,weapon){
   ctx.save();
   ctx.translate(x,y+bob);
   ctx.scale(facing,1);
@@ -501,12 +675,7 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
   ctx.save();
   ctx.translate(handX,handY);
   ctx.rotate(armAngle - Math.PI/2 + swordTilt);
-  const bladeGrad=ctx.createLinearGradient(0,0,0,-swordLen);
-  bladeGrad.addColorStop(0,'#eceff1');bladeGrad.addColorStop(1,'#fafafa');
-  ctx.fillStyle=bladeGrad;
-  ctx.beginPath();
-  ctx.moveTo(-3,4);ctx.lineTo(3,4);ctx.lineTo(2,-swordLen);ctx.lineTo(0,-swordLen-6);ctx.lineTo(-2,-swordLen);
-  ctx.closePath();ctx.fill();
+  drawWeaponHead(weapon,swordLen);
   ctx.fillStyle=color.crest;
   ctx.fillRect(-7,3,14,4);
   ctx.fillStyle='#4e342e';
@@ -526,7 +695,7 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
 
   if(pose==='attack' && poseProgress>0.3){
     ctx.save();
-    ctx.strokeStyle='rgba(255,255,255,0.9)';
+    ctx.strokeStyle=weapon.trail;
     ctx.lineWidth=5;
     ctx.beginPath();
     ctx.arc(shoulderX,shoulderY,26,-2.2,1.1);
@@ -538,6 +707,8 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
   ctx.restore();
 }
 
+const DEFAULT_WEAPON=WEAPONS[0];
+
 function drawPlayer(t){
   let pose='idle', progress=0;
   if(player.state==='hurt'){
@@ -548,8 +719,10 @@ function drawPlayer(t){
     pose='attack';
     progress=1-(player.attackVisualUntil-t)/ATTACK_VISUAL_DURATION;
   }
-  const color={body:'#3b6fb0',bodyHi:'#5c93d6',limb:'#274a73',crest:'#ffca28'};
-  drawFighter(player.x,player.y,player.bob,player.facing,'#ffccab',pose,progress,player.guardLane||'mid',color);
+  const charObj=getCurrentCharacter();
+  const weaponObj=getCurrentWeapon();
+  const color={body:charObj.body,bodyHi:charObj.bodyHi,limb:charObj.limb,crest:charObj.crest};
+  drawFighter(player.x,player.y,player.bob,player.facing,charObj.skin,pose,progress,player.guardLane||'mid',color,weaponObj);
 
   if(player.state==='guarding'){
     const t2=performance.now();
@@ -580,7 +753,7 @@ function drawEnemy(t){
     pose='stunned';
   }
   const color={body:'#a13c3c',bodyHi:'#c9615f',limb:'#5f2323',crest:'#ffe082'};
-  drawFighter(enemy.x,enemy.y,enemy.bob,enemy.facing,'#e2b8a3',pose,progress,enemy.attackLane||'mid',color);
+  drawFighter(enemy.x,enemy.y,enemy.bob,enemy.facing,'#e2b8a3',pose,progress,enemy.attackLane||'mid',color,DEFAULT_WEAPON);
 
   if(enemy.state==='windup'){
     const remain=enemy.phaseEnd-t;
@@ -599,7 +772,7 @@ function drawEnemy(t){
     ctx.save();
     ctx.fillStyle='#fff176';ctx.font='bold 16px sans-serif';ctx.textAlign='center';
     const wob=Math.sin(t/80)*4;
-    ctx.fillText('★ 破 綻 ★',enemy.x+wob,enemy.y-118+enemy.bob);
+    ctx.fillText('★ ★ ★',enemy.x+wob,enemy.y-118+enemy.bob);
     ctx.restore();
   }
 }
@@ -618,7 +791,7 @@ function drawEffects(t){
   });
 }
 function updateHUD(){
-  document.getElementById('levelLabel').textContent='LEVEL '+state.level+(state.level>=30?' ★終極決戰★':'');
+  document.getElementById('levelLabel').textContent=t('levelPrefix')+state.level+(state.level>=30?t('finalSuffix'):'');
   const hearts=document.getElementById('playerHearts');
   hearts.innerHTML='';
   for(let i=0;i<player.maxHp;i++){
@@ -658,8 +831,10 @@ let lastTime=0;
 function loop(t){
   if(!lastTime)lastTime=t;
   const dt=Math.min(50,t-lastTime);lastTime=t;
-  if(state.screen==='playing')update(dt,t);
-  else{ updateParticles(dt); updateButtonStates(); }
+  if(!state.settingsOpen){
+    if(state.screen==='playing')update(dt,t);
+    else{ updateParticles(dt); updateButtonStates(); }
+  }
   render(t);
   requestAnimationFrame(loop);
 }
@@ -680,17 +855,16 @@ function startLevel(n){
 }
 function playerDies(){
   state.screen='dead';
-  const msg = state.level>=30
-    ? '最終決戰... 敵人的斬擊沒有任何預警，這是真正的試煉。'
-    : '第 '+state.level+' 關... 善用打斷機制，抓準敵人前搖的瞬間出手！';
-  showOverlay('被擊敗',msg,[
-    {label:'重試',action:()=>startLevel(state.level)},
-    {label:'返回選單',action:showMenu,secondary:true}
+  const msg = state.level>=30 ? t('defeatFinal') : t('defeatNormal')(state.level);
+  showOverlay(t('defeatTitle'),msg,[
+    {label:t('retry'),action:()=>startLevel(state.level)},
+    {label:t('menu'),action:showMenu,secondary:true}
   ]);
 }
 function enemyDies(){
   enemy.state='dead';
-  spawnParticles(enemy.x,enemy.y-50,24,{color:'#ff8a65',speed:5,life:600,upBias:3});
+  const weaponObj=getCurrentWeapon();
+  spawnParticles(enemy.x,enemy.y-50,24,{color:weaponObj.particle,speed:5,life:600,upBias:3});
   addShake(12,400);
   if(state.level>=state.maxUnlocked){
     state.maxUnlocked=Math.min(31,state.level+1);
@@ -698,11 +872,11 @@ function enemyDies(){
   }
   state.screen='cleared';
   if(state.level>=30){
-    showOverlay('恭喜全破！','你已完成全部 30 關的試煉，擊敗了毫無預警的終極對手！',[{label:'返回選單',action:showMenu}]);
+    showOverlay(t('allClearTitle'),t('allClearText'),[{label:t('menu'),action:showMenu}]);
   } else {
-    showOverlay('關卡過關','第 '+state.level+' 關 完成！',[
-      {label:'下一關',action:()=>startLevel(state.level+1)},
-      {label:'返回選單',action:showMenu,secondary:true}
+    showOverlay(t('clearTitle'),t('clearText')(state.level),[
+      {label:t('nextLevel'),action:()=>startLevel(state.level+1)},
+      {label:t('menu'),action:showMenu,secondary:true}
     ]);
   }
 }
@@ -730,9 +904,9 @@ function showMenu(){
   for(let i=1;i<=30;i++){
     const b=document.createElement('button');
     b.className='lvlCard';
-    let status='locked', tag='鎖定';
-    if(i<state.maxUnlocked){status='cleared';tag='已通關';}
-    else if(i===state.maxUnlocked){status='current';tag='挑戰';}
+    let status='locked', tag=t('locked');
+    if(i<state.maxUnlocked){status='cleared';tag=t('cleared');}
+    else if(i===state.maxUnlocked){status='current';tag=t('challenge');}
     if(i===30 && status!=='locked'){
       b.classList.add('final');
     } else {
@@ -742,15 +916,147 @@ function showMenu(){
     else { b.disabled=true; }
     b.innerHTML = status==='locked'
       ? `<div class="num">🔒</div><div class="tag">${i}</div>`
-      : `<div class="num">${i}</div><div class="tag">${i===30?'終極':tag}</div>`;
+      : `<div class="num">${i}</div><div class="tag">${i===30?t('final'):tag}</div>`;
     grid.appendChild(b);
   }
-  document.getElementById('overlayTitle').textContent='格擋之刃';
-  document.getElementById('overlayText').textContent='點擊格擋鍵立即進入該方向防禦，成功擋下（含完美格擋）會立即解除。斬擊即時觸發但有 10 秒冷卻；敵人前搖時斬擊可打斷其攻擊，其餘時候攻擊會被敵人格擋。第 30 關的敵人攻擊沒有任何預警。';
+  document.getElementById('overlayTitle').textContent=t('title');
+  document.getElementById('overlayText').textContent=t('instructions');
   document.getElementById('overlayButtons').innerHTML='';
   document.getElementById('overlay').classList.remove('hidden');
 }
 
+// ===================== 靜態文字 / HUD 標籤 =====================
+function applyStaticTexts(){
+  document.getElementById('btnBack').textContent=t('back');
+  document.getElementById('btnForward').textContent=t('forward');
+  document.getElementById('btnHigh').textContent=t('guardHigh');
+  document.getElementById('btnMid').textContent=t('guardMid');
+  document.getElementById('btnLow').textContent=t('guardLow');
+  document.getElementById('playerLabel').textContent=t('you');
+  document.getElementById('enemyLabel').textContent=t('enemy');
+  updateButtonStates();
+}
+
+// ===================== 設定畫面 =====================
+function refreshSettingsHeader(){
+  document.getElementById('settingsTitle').textContent=t('settings');
+  document.querySelector('[data-tab="lang"]').textContent=t('tabLang');
+  document.querySelector('[data-tab="char"]').textContent=t('tabChar');
+  document.querySelector('[data-tab="weapon"]').textContent=t('tabWeapon');
+  document.querySelector('[data-tab="layout"]').textContent=t('tabLayout');
+  document.querySelector('[data-lang="zh"]').textContent=t('chinese');
+  document.querySelector('[data-lang="en"]').textContent=t('english');
+  document.querySelectorAll('.langOption').forEach(el=>{
+    el.classList.toggle('selected', el.dataset.lang===settings.language);
+  });
+  document.getElementById('layoutHint').textContent=t('layoutHint');
+  document.getElementById('btnResetLayout').textContent=t('resetLayout');
+  document.getElementById('btnCloseSettings').textContent=t('close');
+}
+
+function buildCharGrid(){
+  const grid=document.getElementById('charGrid');
+  grid.innerHTML='';
+  CHARACTERS.forEach(c=>{
+    const b=document.createElement('button');
+    b.className='pickCard'+(c.id===settings.characterId?' selected':'');
+    b.innerHTML=`<div class="swatch" style="background:${c.body}"></div><div class="pickName">${c.name[settings.language]}</div>`;
+    b.onclick=()=>{ settings.characterId=c.id; saveSettings(); buildCharGrid(); };
+    grid.appendChild(b);
+  });
+}
+function buildWeaponGrid(){
+  const grid=document.getElementById('weaponGrid');
+  grid.innerHTML='';
+  WEAPONS.forEach(w=>{
+    const b=document.createElement('button');
+    b.className='pickCard'+(w.id===settings.weaponId?' selected':'');
+    b.innerHTML=`<div class="swatch" style="background:linear-gradient(135deg,${w.bladeStart},${w.bladeEnd})"></div><div class="pickName">${w.name[settings.language]}</div>`;
+    b.onclick=()=>{ settings.weaponId=w.id; saveSettings(); buildWeaponGrid(); };
+    grid.appendChild(b);
+  });
+}
+function buildLayoutControls(){
+  const container=document.getElementById('layoutControls');
+  container.innerHTML='';
+  const labels={high:t('guardHigh'),mid:t('guardMid'),low:t('guardLow'),attack:t('attack')};
+  ['high','mid','low','attack'].forEach(key=>{
+    const l=settings.layout[key];
+    const row=document.createElement('div');
+    row.className='layoutRow';
+    row.innerHTML=`
+      <div class="layoutRowTitle">${labels[key]}</div>
+      <label>${t('posX')}
+        <input type="range" min="-60" max="60" value="${l.dx}" data-key="${key}" data-prop="dx">
+      </label>
+      <label>${t('posY')}
+        <input type="range" min="-60" max="60" value="${l.dy}" data-key="${key}" data-prop="dy">
+      </label>
+      <label>${t('size')}
+        <input type="range" min="0.7" max="1.6" step="0.05" value="${l.scale}" data-key="${key}" data-prop="scale">
+      </label>
+    `;
+    container.appendChild(row);
+  });
+  container.querySelectorAll('input[type=range]').forEach(inp=>{
+    inp.addEventListener('input',e=>{
+      const key=e.target.dataset.key, prop=e.target.dataset.prop;
+      settings.layout[key][prop]=parseFloat(e.target.value);
+      applyLayout();
+      saveSettings();
+    });
+  });
+}
+function applyLayout(){
+  ['high','mid','low','attack'].forEach(key=>{
+    const btnId = key==='attack' ? 'btnAttack' : 'btn'+key.charAt(0).toUpperCase()+key.slice(1);
+    const el=document.getElementById(btnId);
+    const l=settings.layout[key];
+    el.style.transform = `translate(${l.dx}px, ${l.dy}px) scale(${l.scale})`;
+  });
+}
+
+function openSettings(){
+  state.settingsOpen=true;
+  refreshSettingsHeader();
+  buildCharGrid();buildWeaponGrid();buildLayoutControls();
+  document.getElementById('settingsOverlay').classList.remove('hidden');
+}
+function closeSettings(){
+  state.settingsOpen=false;
+  document.getElementById('settingsOverlay').classList.add('hidden');
+  if(state.screen==='menu')showMenu();
+}
+
+document.getElementById('btnSettings').addEventListener('pointerdown',e=>{e.preventDefault();openSettings();});
+document.getElementById('btnCloseSettings').addEventListener('pointerdown',e=>{e.preventDefault();closeSettings();});
+
+document.querySelectorAll('.tabBtn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.tabBtn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelectorAll('.tabPane').forEach(p=>p.classList.add('hidden'));
+    document.getElementById('tab'+btn.dataset.tab.charAt(0).toUpperCase()+btn.dataset.tab.slice(1)).classList.remove('hidden');
+  });
+});
+document.querySelectorAll('.langOption').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    settings.language=btn.dataset.lang;
+    saveSettings();
+    applyStaticTexts();
+    refreshSettingsHeader();
+    buildCharGrid();buildWeaponGrid();buildLayoutControls();
+    if(state.screen==='menu')showMenu();
+  });
+});
+document.getElementById('btnResetLayout').addEventListener('click',()=>{
+  settings.layout=defaultLayout();
+  saveSettings();
+  applyLayout();
+  buildLayoutControls();
+});
+
+// ===================== 操作綁定 =====================
 function bindTap(el,fn){
   el.addEventListener('pointerdown',e=>{e.preventDefault();fn();});
 }
@@ -765,6 +1071,7 @@ bindTap(document.getElementById('btnLow'),()=>pressGuard('low'));
 bindTap(document.getElementById('btnAttack'),triggerAttack);
 
 window.addEventListener('keydown',e=>{
+  if(state.settingsOpen)return;
   if(e.code==='ArrowLeft'||e.code==='KeyA')input.moveBack=true;
   if(e.code==='ArrowRight'||e.code==='KeyD')input.moveForward=true;
   if(e.code==='KeyQ')pressGuard('high');
@@ -777,6 +1084,9 @@ window.addEventListener('keyup',e=>{
   if(e.code==='ArrowRight'||e.code==='KeyD')input.moveForward=false;
 });
 
+// ===================== 初始化 =====================
+applyStaticTexts();
+applyLayout();
 showMenu();
 })();
 </script>
