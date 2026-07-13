@@ -52,7 +52,6 @@
   #overlayButtons{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
   #overlayButtons button{background:#2e7d32;padding:12px 22px;border-radius:10px;}
   #overlayButtons button.secondary{background:#37474f;}
-  #overlayButtons button.settingsLink{background:#37474f;}
 
   /* Settings overlay */
   #settingsOverlay{position:absolute;inset:0;background:rgba(8,9,13,0.97);z-index:30;display:flex;align-items:flex-start;justify-content:center;overflow-y:auto;}
@@ -73,11 +72,22 @@
   .pickCard .swatch{width:36px;height:36px;border-radius:8px;}
   .pickCard .pickName{font-size:10px;text-align:center;line-height:1.2;}
   .hint{font-size:12px;color:#9aa0ab;margin-bottom:10px;}
-  .layoutRow{background:#252b38;border-radius:10px;padding:10px;margin-bottom:10px;}
-  .layoutRowTitle{font-size:13px;font-weight:bold;margin-bottom:6px;}
-  .layoutRow label{display:block;font-size:11px;color:#9aa0ab;margin-bottom:8px;}
-  .layoutRow input[type=range]{width:100%;}
-  #btnResetLayout{background:#616161;width:100%;margin-top:4px;}
+
+  /* Layout editor (drag & drop) */
+  #layoutEditorWrap{background:#11151d;border-radius:10px;padding:8px;margin-bottom:10px;}
+  #layoutStage{position:relative;width:100%;aspect-ratio:16/9;background:#1b2029;border-radius:8px;overflow:hidden;touch-action:none;}
+  .dragBtn{position:absolute;border-radius:10px;font-weight:bold;font-size:12px;color:#fff;display:flex;align-items:center;justify-content:center;touch-action:none;cursor:grab;border:2px solid rgba(255,255,255,0.5);user-select:none;-webkit-user-select:none;}
+  .dragBtn.dragging{filter:brightness(1.3);cursor:grabbing;z-index:5;}
+  .dragBtn.high{background:#c62828;}
+  .dragBtn.mid{background:#f9a825;color:#222;}
+  .dragBtn.low{background:#1565c0;}
+  .dragBtn.attack{background:#ff9100;color:#222;}
+  .zoomRow{display:flex;justify-content:space-between;align-items:center;background:#252b38;border-radius:8px;padding:6px 10px;margin-bottom:6px;}
+  .zoomRow .zoomLabel{font-size:12px;font-weight:bold;}
+  .zoomRow .zoomBtns{display:flex;gap:6px;}
+  .zoomRow .zoomBtns button{padding:6px 12px;border-radius:6px;background:#37474f;font-size:14px;}
+  #btnSaveLayout{background:#2e7d32;width:100%;margin-top:8px;padding:12px;}
+  #btnResetLayout{background:#616161;width:100%;margin-top:6px;}
 </style>
 </head>
 <body>
@@ -135,8 +145,12 @@
       </div>
       <div id="tabLayout" class="tabPane hidden">
         <p class="hint" id="layoutHint"></p>
-        <div id="layoutControls"></div>
-        <button id="btnResetLayout">重置配置</button>
+        <div id="layoutEditorWrap">
+          <div id="layoutStage"></div>
+        </div>
+        <div id="zoomControls"></div>
+        <button id="btnSaveLayout"></button>
+        <button id="btnResetLayout"></button>
       </div>
     </div>
   </div>
@@ -203,8 +217,8 @@ const LANG = {
     settings:'設定', close:'關閉',
     tabLang:'語言', tabChar:'人物', tabWeapon:'武器', tabLayout:'按鍵配置',
     chinese:'中文', english:'English',
-    layoutHint:'調整每個按鍵的位置與大小（即時預覽）',
-    posX:'水平位移', posY:'垂直位移', size:'大小',
+    layoutHint:'拖曳按鍵調整位置，用 − / + 調整大小，完成後按儲存',
+    saveLayout:'儲存配置',
     resetLayout:'重置配置',
     perfectGuard:'完美格擋!', guardText:'格擋', hit:'中招!', dodge:'閃避!', interrupt:'打斷!', slash:'斬中!', blocked:'被格擋', miss:'落空'
   },
@@ -226,8 +240,8 @@ const LANG = {
     settings:'Settings', close:'Close',
     tabLang:'Language', tabChar:'Character', tabWeapon:'Weapon', tabLayout:'Button Layout',
     chinese:'中文', english:'English',
-    layoutHint:"Adjust each button's position and size (live preview)",
-    posX:'Horizontal', posY:'Vertical', size:'Size',
+    layoutHint:'Drag buttons to reposition, use − / + to resize, then tap Save',
+    saveLayout:'Save Layout',
     resetLayout:'Reset Layout',
     perfectGuard:'PERFECT!', guardText:'Blocked', hit:'Hit!', dodge:'Dodge!', interrupt:'Interrupt!', slash:'Slash!', blocked:'Parried', miss:'Miss'
   }
@@ -950,6 +964,7 @@ function refreshSettingsHeader(){
     el.classList.toggle('selected', el.dataset.lang===settings.language);
   });
   document.getElementById('layoutHint').textContent=t('layoutHint');
+  document.getElementById('btnSaveLayout').textContent=t('saveLayout');
   document.getElementById('btnResetLayout').textContent=t('resetLayout');
   document.getElementById('btnCloseSettings').textContent=t('close');
 }
@@ -976,56 +991,126 @@ function buildWeaponGrid(){
     grid.appendChild(b);
   });
 }
-function buildLayoutControls(){
-  const container=document.getElementById('layoutControls');
-  container.innerHTML='';
+
+// ---- 拖曳式按鍵配置編輯器 ----
+let draftLayout=null; // 編輯中的暫存配置，按儲存才寫回 settings.layout
+const LAYOUT_KEYS=['high','mid','low','attack'];
+const BASE_BTN_SIZE={high:{w:70,h:50},mid:{w:70,h:50},low:{w:70,h:50},attack:{w:150,h:50}};
+const BASE_BTN_POS={ // 對應 stage 座標系（以百分比存放，換算成 stage 實際寬高使用）
+  high:{xPct:0.62,yPct:0.18},
+  mid:{xPct:0.62,yPct:0.5},
+  low:{xPct:0.62,yPct:0.82},
+  attack:{xPct:0.62,yPct:1.15}
+};
+
+function buildLayoutEditor(){
+  draftLayout = JSON.parse(JSON.stringify(settings.layout));
+  const stage=document.getElementById('layoutStage');
+  stage.innerHTML='';
   const labels={high:t('guardHigh'),mid:t('guardMid'),low:t('guardLow'),attack:t('attack')};
-  ['high','mid','low','attack'].forEach(key=>{
-    const l=settings.layout[key];
-    const row=document.createElement('div');
-    row.className='layoutRow';
-    row.innerHTML=`
-      <div class="layoutRowTitle">${labels[key]}</div>
-      <label>${t('posX')}
-        <input type="range" min="-60" max="60" value="${l.dx}" data-key="${key}" data-prop="dx">
-      </label>
-      <label>${t('posY')}
-        <input type="range" min="-60" max="60" value="${l.dy}" data-key="${key}" data-prop="dy">
-      </label>
-      <label>${t('size')}
-        <input type="range" min="0.7" max="1.6" step="0.05" value="${l.scale}" data-key="${key}" data-prop="scale">
-      </label>
-    `;
-    container.appendChild(row);
+  const colorClass={high:'high',mid:'mid',low:'low',attack:'attack'};
+
+  LAYOUT_KEYS.forEach(key=>{
+    const el=document.createElement('div');
+    el.className='dragBtn '+colorClass[key];
+    el.textContent=labels[key];
+    el.dataset.key=key;
+    stage.appendChild(el);
   });
-  container.querySelectorAll('input[type=range]').forEach(inp=>{
-    inp.addEventListener('input',e=>{
-      const key=e.target.dataset.key, prop=e.target.dataset.prop;
-      settings.layout[key][prop]=parseFloat(e.target.value);
-      applyLayout();
-      saveSettings();
+
+  function layoutPositions(){
+    const rect=stage.getBoundingClientRect();
+    LAYOUT_KEYS.forEach(key=>{
+      const el=stage.querySelector(`[data-key="${key}"]`);
+      const base=BASE_BTN_POS[key];
+      const size=BASE_BTN_SIZE[key];
+      const l=draftLayout[key];
+      const scale=l.scale;
+      const w=size.w*scale, h=size.h*scale;
+      let cx = base.xPct*rect.width + l.dx*1.4;
+      let cy = base.yPct*rect.height*0.6 + rect.height*0.18 + l.dy*1.4;
+      cx=clamp(cx, w/2, rect.width-w/2);
+      cy=clamp(cy, h/2, rect.height-h/2);
+      el.style.width=w+'px';
+      el.style.height=h+'px';
+      el.style.left=(cx-w/2)+'px';
+      el.style.top=(cy-h/2)+'px';
+      el.style.fontSize=Math.max(9,11*scale)+'px';
+    });
+  }
+  layoutPositions();
+
+  // 拖曳邏輯
+  LAYOUT_KEYS.forEach(key=>{
+    const el=stage.querySelector(`[data-key="${key}"]`);
+    let dragging=false, startPX=0, startPY=0, startDx=0, startDy=0;
+    el.addEventListener('pointerdown',e=>{
+      e.preventDefault();
+      dragging=true;
+      el.classList.add('dragging');
+      el.setPointerCapture(e.pointerId);
+      startPX=e.clientX; startPY=e.clientY;
+      startDx=draftLayout[key].dx; startDy=draftLayout[key].dy;
+    });
+    el.addEventListener('pointermove',e=>{
+      if(!dragging)return;
+      const ddx=e.clientX-startPX, ddy=e.clientY-startPY;
+      draftLayout[key].dx=clamp(startDx+ddx, -300, 300);
+      draftLayout[key].dy=clamp(startDy+ddy, -300, 300);
+      layoutPositions();
+    });
+    ['pointerup','pointercancel'].forEach(ev=>el.addEventListener(ev,e=>{
+      dragging=false;
+      el.classList.remove('dragging');
+    }));
+  });
+
+  // 縮放控制
+  const zoomContainer=document.getElementById('zoomControls');
+  zoomContainer.innerHTML='';
+  LAYOUT_KEYS.forEach(key=>{
+    const row=document.createElement('div');
+    row.className='zoomRow';
+    row.innerHTML=`
+      <div class="zoomLabel">${labels[key]}</div>
+      <div class="zoomBtns">
+        <button data-key="${key}" data-dir="-1">－</button>
+        <button data-key="${key}" data-dir="1">＋</button>
+      </div>
+    `;
+    zoomContainer.appendChild(row);
+  });
+  zoomContainer.querySelectorAll('button').forEach(btn=>{
+    btn.addEventListener('click',()=>{
+      const key=btn.dataset.key;
+      const dir=parseFloat(btn.dataset.dir);
+      draftLayout[key].scale=clamp(draftLayout[key].scale + dir*0.1, 0.6, 1.8);
+      layoutPositions();
     });
   });
-}
-function applyLayout(){
-  ['high','mid','low','attack'].forEach(key=>{
-    const btnId = key==='attack' ? 'btnAttack' : 'btn'+key.charAt(0).toUpperCase()+key.slice(1);
-    const el=document.getElementById(btnId);
-    const l=settings.layout[key];
-    el.style.transform = `translate(${l.dx}px, ${l.dy}px) scale(${l.scale})`;
-  });
+
+  window.addEventListener('resize', layoutPositions);
 }
 
 function openSettings(){
   state.settingsOpen=true;
   refreshSettingsHeader();
-  buildCharGrid();buildWeaponGrid();buildLayoutControls();
+  buildCharGrid();buildWeaponGrid();buildLayoutEditor();
   document.getElementById('settingsOverlay').classList.remove('hidden');
 }
 function closeSettings(){
   state.settingsOpen=false;
   document.getElementById('settingsOverlay').classList.add('hidden');
   if(state.screen==='menu')showMenu();
+}
+
+function applyLayout(){
+  LAYOUT_KEYS.forEach(key=>{
+    const btnId = key==='attack' ? 'btnAttack' : 'btn'+key.charAt(0).toUpperCase()+key.slice(1);
+    const el=document.getElementById(btnId);
+    const l=settings.layout[key];
+    el.style.transform = `translate(${l.dx}px, ${l.dy}px) scale(${l.scale})`;
+  });
 }
 
 document.getElementById('btnSettings').addEventListener('pointerdown',e=>{e.preventDefault();openSettings();});
@@ -1037,6 +1122,7 @@ document.querySelectorAll('.tabBtn').forEach(btn=>{
     btn.classList.add('active');
     document.querySelectorAll('.tabPane').forEach(p=>p.classList.add('hidden'));
     document.getElementById('tab'+btn.dataset.tab.charAt(0).toUpperCase()+btn.dataset.tab.slice(1)).classList.remove('hidden');
+    if(btn.dataset.tab==='layout')buildLayoutEditor();
   });
 });
 document.querySelectorAll('.langOption').forEach(btn=>{
@@ -1045,15 +1131,18 @@ document.querySelectorAll('.langOption').forEach(btn=>{
     saveSettings();
     applyStaticTexts();
     refreshSettingsHeader();
-    buildCharGrid();buildWeaponGrid();buildLayoutControls();
+    buildCharGrid();buildWeaponGrid();buildLayoutEditor();
     if(state.screen==='menu')showMenu();
   });
 });
 document.getElementById('btnResetLayout').addEventListener('click',()=>{
-  settings.layout=defaultLayout();
+  draftLayout=defaultLayout();
+  buildLayoutEditor();
+});
+document.getElementById('btnSaveLayout').addEventListener('click',()=>{
+  settings.layout=JSON.parse(JSON.stringify(draftLayout));
   saveSettings();
   applyLayout();
-  buildLayoutControls();
 });
 
 // ===================== 操作綁定 =====================
