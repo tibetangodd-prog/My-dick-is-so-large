@@ -46,6 +46,7 @@
   .lvlCard.cleared{background:linear-gradient(145deg,#2e7d32,#1b5e20);color:#e8f5e9;}
   .lvlCard.locked{background:#161a22;color:#454c5a;}
   .lvlCard.locked .num{opacity:0.5;}
+  .lvlCard.final{background:linear-gradient(145deg,#4a148c,#880e4f);color:#fce4ec;box-shadow:0 0 12px rgba(216,27,96,0.6);}
 
   #overlayButtons{display:flex;gap:10px;justify-content:center;flex-wrap:wrap;}
   #overlayButtons button{background:#2e7d32;padding:12px 22px;border-radius:10px;}
@@ -77,7 +78,7 @@
   <div id="overlay">
     <div id="overlayBox">
       <h1 id="overlayTitle">格擋之刃</h1>
-      <p id="overlayText">看破敵人斬擊的前搖，格擋觸發後的瞬間反應才是完美格擋；斬擊有明顯前後搖，出手前請確認安全。</p>
+      <p id="overlayText">點擊格擋鍵立即進入該方向防禦，成功擋下（含完美格擋）會立即解除。斬擊即時觸發但有 10 秒冷卻；敵人前搖時斬擊可打斷其攻擊，其餘時候攻擊會被敵人格擋。</p>
       <div id="levelSelectGrid"></div>
       <div id="overlayButtons"></div>
     </div>
@@ -95,13 +96,12 @@ const PLAYER_SPEED=0.28;
 const FOLLOW_OFFSET=110;
 const MELEE_RANGE=130;
 
-const ATTACK_STARTUP=400;   // 前搖
-const ATTACK_ACTIVE=110;    // 判定
-const ATTACK_RECOVER=200;   // 後搖
-const GUARD_DURATION=1000;  // 格擋固定持續時間
-const PERFECT_WINDOW=170;   // 格擋觸發後多快被打中算完美格擋
+const ATTACK_COOLDOWN=10000;      // 斬擊冷卻時間
+const ATTACK_VISUAL_DURATION=150; // 純視覺揮劍動畫時長，不影響操作
+const GUARD_DURATION=1000;        // 格擋固定持續時間（若未被成功防禦觸發，滿時間自動解除）
+const PERFECT_WINDOW=170;         // 格擋觸發後多快被打中算完美格擋
 
-const ACTIVE_DURATION=130;  // 敵人攻擊判定時間
+const ACTIVE_DURATION=130;    // 敵人攻擊判定時間
 const ENEMY_ATTACK_RANGE=145; // 敵人攻擊有效距離，超出則閃避
 const STUN_DURATION=800;
 const PLAYER_HURT_DURATION=450;
@@ -114,8 +114,10 @@ function laneFullLabel(l){return l==='high'?'上段防禦':l==='mid'?'中段防�
 function lerp(a,b,t){return a+(b-a)*t;}
 
 function getLevelConfig(lv){
+  const isFinal = lv>=30;
   return {
-    telegraph: Math.max(160, 950 - lv*36),
+    telegraph: isFinal ? 0 : Math.max(160, 950 - lv*36),
+    noTelegraph: isFinal,
     idleWait: Math.max(300, 1500 - lv*40),
     recover: Math.max(200, 620 - lv*13),
     comboChance: Math.min(1, Math.max(0,(lv-6)*0.05)),
@@ -127,9 +129,9 @@ function getLevelConfig(lv){
 const state={ screen:'menu', level:1, maxUnlocked: parseInt(localStorage.getItem('parrygame_maxlevel')||'1',10) };
 
 const player={
-  x:150,y:GROUND_Y,facing:1,hp:3,maxHp:3,state:'idle', // idle | guarding | attacking | hurt
+  x:150,y:GROUND_Y,facing:1,hp:3,maxHp:3,state:'idle', // idle | guarding | hurt
   hurtUntil:0,
-  attackStartupEnd:0,attackActiveEnd:0,attackRecoverEnd:0,hasHitThisSwing:false,
+  attackCooldownUntil:0,attackVisualUntil:0,
   guardLane:null,guardStart:0,guardEnd:0,
   bob:0
 };
@@ -215,7 +217,7 @@ function drawParticles(){
 // ---- Player actions ----
 function pressGuard(lane){
   if(state.screen!=='playing')return;
-  if(player.state!=='idle')return; // 攻擊中或已在格擋中，不可觸發
+  if(player.state!=='idle')return;
   const t=performance.now();
   player.state='guarding';
   player.guardLane=lane;
@@ -223,21 +225,69 @@ function pressGuard(lane){
   player.guardEnd=t+GUARD_DURATION;
   updateButtonStates();
 }
-function triggerAttack(){
-  if(state.screen!=='playing')return;
-  if(player.state!=='idle')return; // 格擋中或攻擊中不可再出手
-  const t=performance.now();
-  player.state='attacking';
-  player.hasHitThisSwing=false;
-  player.attackStartupEnd=t+ATTACK_STARTUP;
-  player.attackActiveEnd=player.attackStartupEnd+ATTACK_ACTIVE;
-  player.attackRecoverEnd=player.attackActiveEnd+ATTACK_RECOVER;
+function cancelGuardSuccess(){
+  player.state='idle';
+  player.guardLane=null;
   updateButtonStates();
 }
+
+function triggerAttack(){
+  if(state.screen!=='playing')return;
+  if(player.state==='guarding'||player.state==='hurt')return;
+  const t=performance.now();
+  if(t<player.attackCooldownUntil)return;
+  player.attackCooldownUntil=t+ATTACK_COOLDOWN;
+  player.attackVisualUntil=t+ATTACK_VISUAL_DURATION;
+  updateButtonStates();
+  resolvePlayerAttack(t);
+}
+
+function resolvePlayerAttack(t){
+  const dist=Math.abs(enemy.x-player.x);
+  if(dist>MELEE_RANGE||enemy.state==='dead'){
+    spawnEffect('落空',player.x,player.y-70,'#90a4ae');
+    return;
+  }
+  if(enemy.state==='windup'){
+    enemy.hp--;
+    spawnEffect('打斷!',enemy.x,enemy.y-60,'#ffd54f');
+    spawnParticles(enemy.x,enemy.y-55,12,{color:'#ff8a65',speed:3.5,life:420,upBias:1});
+    spawnSparkBurst(enemy.x,enemy.y-55,'#fff59d');
+    addShake(6,180);
+    enemy.attackLane=null;
+    if(checkEnemyDeath())return;
+    enemy.state='chase';
+    enemy.timer=enemy.cfg.idleWait;
+    return;
+  }
+  if(enemy.state==='stunned'){
+    enemy.hp--;
+    spawnEffect('斬中!',enemy.x,enemy.y-60,'#ffd54f');
+    spawnParticles(enemy.x,enemy.y-55,12,{color:'#ff8a65',speed:3.5,life:420,upBias:1});
+    spawnSparkBurst(enemy.x,enemy.y-55,'#fff59d');
+    addShake(6,180);
+    checkEnemyDeath();
+    return;
+  }
+  // chase / active / recover: 敵人格擋你的斬擊
+  spawnEffect('被格擋',enemy.x,enemy.y-60,'#b0bec5');
+  spawnSparkBurst(enemy.x,enemy.y-55,'#eceff1');
+  addShake(3,120);
+}
+
 function updateButtonStates(){
-  const busy = player.state!=='idle';
-  ['btnHigh','btnMid','btnLow'].forEach(id=>document.getElementById(id).disabled = state.screen!=='playing' || busy);
-  document.getElementById('btnAttack').disabled = state.screen!=='playing' || busy;
+  const t=performance.now();
+  const guardBusy = player.state==='guarding' || player.state==='hurt';
+  ['btnHigh','btnMid','btnLow'].forEach(id=>document.getElementById(id).disabled = state.screen!=='playing' || guardBusy);
+  const atkBtn=document.getElementById('btnAttack');
+  const onCooldown = t<player.attackCooldownUntil;
+  atkBtn.disabled = state.screen!=='playing' || guardBusy || onCooldown;
+  if(state.screen==='playing' && onCooldown){
+    const remain=Math.max(0,(player.attackCooldownUntil-t)/1000);
+    atkBtn.textContent='斬擊 ('+remain.toFixed(1)+'s)';
+  } else {
+    atkBtn.textContent='斬 擊';
+  }
 }
 
 function damagePlayer(){
@@ -275,12 +325,14 @@ function resolveEnemyHit(t){
       spawnSparkBurst(player.x,player.y-55,'#b9f6ca');
       addShake(10,260);
       flash('rgba(105,255,178,0.25)',180);
+      cancelGuardSuccess();
       if(checkEnemyDeath())return;
       enemy.state='stunned';enemy.phaseEnd=t+STUN_DURATION;
     } else {
       spawnEffect('格擋',player.x,player.y-70,'#90caf9');
       spawnSparkBurst(player.x,player.y-55,'#e3f2fd');
       addShake(4,150);
+      cancelGuardSuccess();
     }
   } else {
     spawnEffect('中招!',player.x,player.y-70,'#ff5252');
@@ -291,6 +343,13 @@ function resolveEnemyHit(t){
 function startEnemyWindup(t){
   const lanes=['high','mid','low'];
   enemy.attackLane=lanes[Math.floor(Math.random()*3)];
+  if(enemy.cfg.noTelegraph){
+    // 無前搖：直接進入攻擊生效判定，玩家沒有任何預警
+    enemy.state='active';
+    enemy.phaseEnd=t+ACTIVE_DURATION;
+    resolveEnemyHit(t);
+    return;
+  }
   enemy.state='windup';
   enemy.phaseEnd=t+enemy.cfg.telegraph;
 }
@@ -334,7 +393,7 @@ function updateEnemy(dt,t){
 
 function update(dt,t){
   player.facing = player.x<=enemy.x?1:-1;
-  if(player.state!=='hurt'&&player.state!=='attacking'){
+  if(player.state!=='hurt'){
     let dir=0;
     if(input.moveBack)dir-=1;
     if(input.moveForward)dir+=1;
@@ -348,26 +407,10 @@ function update(dt,t){
       player.state='idle';player.guardLane=null;
       updateButtonStates();
     }
-  } else if(player.state==='attacking'){
-    if(t<player.attackStartupEnd){}
-    else if(t<player.attackActiveEnd){
-      if(!player.hasHitThisSwing){
-        const dist=Math.abs(enemy.x-player.x);
-        if(dist<=MELEE_RANGE&&enemy.state!=='dead'){
-          enemy.hp--;player.hasHitThisSwing=true;
-          spawnEffect('斬中!',enemy.x,enemy.y-60,'#ffd54f');
-          spawnParticles(enemy.x - player.facing*10, enemy.y-55,12,{color:'#ff8a65',speed:3.5,life:420,upBias:1});
-          spawnSparkBurst(enemy.x,enemy.y-55,'#fff59d');
-          addShake(6,180);
-          if(enemy.state==='active'){damagePlayer();}
-          checkEnemyDeath();
-        }
-      }
-    } else if(t<player.attackRecoverEnd){}
-    else{player.state='idle';updateButtonStates();}
   } else if(player.state==='hurt'){
     if(t>=player.hurtUntil){player.state='idle';updateButtonStates();}
   }
+  updateButtonStates();
   updateParticles(dt);
   if(state.screen!=='playing')return;
   updateEnemy(dt,t);
@@ -481,7 +524,7 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
     ctx.restore();
   }
 
-  if(pose==='attack' && poseProgress>0.6 && poseProgress<0.9){
+  if(pose==='attack' && poseProgress>0.3){
     ctx.save();
     ctx.strokeStyle='rgba(255,255,255,0.9)';
     ctx.lineWidth=5;
@@ -497,21 +540,13 @@ function drawFighter(x,y,bob,facing,skin,pose,poseProgress,lane,color){
 
 function drawPlayer(t){
   let pose='idle', progress=0;
-  if(player.state==='attacking'){
-    if(t<player.attackStartupEnd){
-      pose='windup';
-      progress=1-(player.attackStartupEnd-t)/ATTACK_STARTUP;
-    } else if(t<player.attackActiveEnd){
-      pose='attack';
-      progress=(t-player.attackStartupEnd)/ATTACK_ACTIVE;
-    } else {
-      pose='attack';
-      progress=1;
-    }
-  } else if(player.state==='hurt'){
+  if(player.state==='hurt'){
     pose='hurt';
   } else if(player.state==='guarding'){
     pose='guard-'+player.guardLane;
+  } else if(t<player.attackVisualUntil){
+    pose='attack';
+    progress=1-(player.attackVisualUntil-t)/ATTACK_VISUAL_DURATION;
   }
   const color={body:'#3b6fb0',bodyHi:'#5c93d6',limb:'#274a73',crest:'#ffca28'};
   drawFighter(player.x,player.y,player.bob,player.facing,'#ffccab',pose,progress,player.guardLane||'mid',color);
@@ -529,15 +564,6 @@ function drawPlayer(t){
     ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,0.6)';
     ctx.strokeText(laneFullLabel(player.guardLane),0,-22);
     ctx.fillText(laneFullLabel(player.guardLane),0,-22);
-    ctx.restore();
-  } else if(player.state==='attacking'){
-    ctx.save();
-    ctx.fillStyle= t<player.attackStartupEnd ? '#ffab40' : '#ff5252';
-    ctx.font='bold 12px sans-serif';ctx.textAlign='center';
-    ctx.lineWidth=3;ctx.strokeStyle='rgba(0,0,0,0.6)';
-    const label = t<player.attackStartupEnd ? '蓄力中...' : (t<player.attackActiveEnd?'斬擊!':'後搖中');
-    ctx.strokeText(label,player.x,player.y-118+player.bob);
-    ctx.fillText(label,player.x,player.y-118+player.bob);
     ctx.restore();
   }
 }
@@ -592,7 +618,7 @@ function drawEffects(t){
   });
 }
 function updateHUD(){
-  document.getElementById('levelLabel').textContent='LEVEL '+state.level;
+  document.getElementById('levelLabel').textContent='LEVEL '+state.level+(state.level>=30?' ★終極決戰★':'');
   const hearts=document.getElementById('playerHearts');
   hearts.innerHTML='';
   for(let i=0;i<player.maxHp;i++){
@@ -633,7 +659,7 @@ function loop(t){
   if(!lastTime)lastTime=t;
   const dt=Math.min(50,t-lastTime);lastTime=t;
   if(state.screen==='playing')update(dt,t);
-  else updateParticles(dt);
+  else{ updateParticles(dt); updateButtonStates(); }
   render(t);
   requestAnimationFrame(loop);
 }
@@ -644,6 +670,7 @@ function startLevel(n){
   const cfg=getLevelConfig(n);
   player.hp=player.maxHp=3;
   player.x=150;player.state='idle';player.guardLane=null;
+  player.attackCooldownUntil=0;player.attackVisualUntil=0;
   enemy.cfg=cfg;enemy.hp=cfg.hp;enemy.maxHp=cfg.hp;
   enemy.x=player.x+FOLLOW_OFFSET;enemy.state='chase';enemy.timer=cfg.idleWait;
   effects=[];particles=[];
@@ -653,7 +680,10 @@ function startLevel(n){
 }
 function playerDies(){
   state.screen='dead';
-  showOverlay('被擊敗','第 '+state.level+' 關... 看清前搖，格擋觸發後保持警覺，抓準時機再出手！',[
+  const msg = state.level>=30
+    ? '最終決戰... 敵人的斬擊沒有任何預警，這是真正的試煉。'
+    : '第 '+state.level+' 關... 善用打斷機制，抓準敵人前搖的瞬間出手！';
+  showOverlay('被擊敗',msg,[
     {label:'重試',action:()=>startLevel(state.level)},
     {label:'返回選單',action:showMenu,secondary:true}
   ]);
@@ -668,7 +698,7 @@ function enemyDies(){
   }
   state.screen='cleared';
   if(state.level>=30){
-    showOverlay('恭喜全破！','你已完成全部 30 關的試煉！',[{label:'返回選單',action:showMenu}]);
+    showOverlay('恭喜全破！','你已完成全部 30 關的試煉，擊敗了毫無預警的終極對手！',[{label:'返回選單',action:showMenu}]);
   } else {
     showOverlay('關卡過關','第 '+state.level+' 關 完成！',[
       {label:'下一關',action:()=>startLevel(state.level+1)},
@@ -703,16 +733,20 @@ function showMenu(){
     let status='locked', tag='鎖定';
     if(i<state.maxUnlocked){status='cleared';tag='已通關';}
     else if(i===state.maxUnlocked){status='current';tag='挑戰';}
-    b.classList.add(status==='locked'?'locked':(status==='current'?'current':'cleared'));
+    if(i===30 && status!=='locked'){
+      b.classList.add('final');
+    } else {
+      b.classList.add(status==='locked'?'locked':(status==='current'?'current':'cleared'));
+    }
     if(status!=='locked'){ b.classList.add('playable'); b.onclick=()=>startLevel(i); }
     else { b.disabled=true; }
     b.innerHTML = status==='locked'
       ? `<div class="num">🔒</div><div class="tag">${i}</div>`
-      : `<div class="num">${i}</div><div class="tag">${tag}</div>`;
+      : `<div class="num">${i}</div><div class="tag">${i===30?'終極':tag}</div>`;
     grid.appendChild(b);
   }
   document.getElementById('overlayTitle').textContent='格擋之刃';
-  document.getElementById('overlayText').textContent='點擊格擋鍵會立即進入該方向防禦姿態並持續 1 秒（此時無法攻擊）；斬擊有前後搖，出手前後都無法格擋。敵人攻擊有固定範圍，及時後退可直接閃避。挑選一關開始吧。';
+  document.getElementById('overlayText').textContent='點擊格擋鍵立即進入該方向防禦，成功擋下（含完美格擋）會立即解除。斬擊即時觸發但有 10 秒冷卻；敵人前搖時斬擊可打斷其攻擊，其餘時候攻擊會被敵人格擋。第 30 關的敵人攻擊沒有任何預警。';
   document.getElementById('overlayButtons').innerHTML='';
   document.getElementById('overlay').classList.remove('hidden');
 }
