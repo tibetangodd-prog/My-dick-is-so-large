@@ -31,8 +31,8 @@
   #btnAttack{background:#ff9100;color:#222;flex-basis:100%;}
   button:active{filter:brightness(1.3);}
 
-  .editableBtn{cursor:grab;}
-  .editableBtn.dragging{filter:brightness(1.3);cursor:grabbing;outline:2px dashed #fff;}
+  .editableBtn{cursor:grab;position:relative;z-index:45;}
+  .editableBtn.dragging{filter:brightness(1.3);cursor:grabbing;outline:2px dashed #fff;z-index:46;}
 
   #overlay{position:absolute;inset:0;background:rgba(8,9,13,0.94);display:flex;align-items:center;justify-content:center;z-index:10;overflow-y:auto;}
   #overlay.hidden{display:none;}
@@ -78,16 +78,16 @@
   #btnEnterLayoutEdit{background:#ff9100;color:#221200;width:100%;padding:14px;font-size:14px;}
 
   /* Layout edit mode overlay bar (over the real controls screen) */
-  #layoutEditBar{position:absolute;top:0;left:0;right:0;background:rgba(8,9,13,0.92);padding:10px 12px;display:flex;justify-content:space-between;align-items:center;z-index:40;gap:8px;flex-wrap:wrap;}
+  #layoutEditBar{position:absolute;top:0;left:0;right:0;background:rgba(8,9,13,0.92);padding:10px 12px;display:flex;justify-content:space-between;align-items:center;z-index:40;gap:8px;flex-wrap:wrap;pointer-events:none;}
   #layoutEditBar.hidden{display:none;}
-  #layoutEditBar .editTitle{font-size:13px;color:#ffcc80;font-weight:bold;flex:1 1 100%;text-align:center;margin-bottom:2px;}
-  #layoutEditBar .editBtns{display:flex;gap:8px;flex:1;justify-content:center;}
+  #layoutEditBar .editTitle{font-size:13px;color:#ffcc80;font-weight:bold;flex:1 1 100%;text-align:center;margin-bottom:2px;pointer-events:none;}
+  #layoutEditBar .editBtns{display:flex;gap:8px;flex:1;justify-content:center;pointer-events:auto;}
   #layoutEditBar button{padding:10px 14px;border-radius:8px;font-size:13px;}
   #btnSaveLayoutEdit{background:#2e7d32;}
   #btnCancelLayoutEdit{background:#616161;}
   #btnResetLayoutEdit{background:#8d6e00;}
 
-  .zoomMini{position:absolute;display:flex;gap:2px;z-index:41;}
+  .zoomMini{position:absolute;display:flex;gap:2px;z-index:47;}
   .zoomMini button{padding:4px 8px;border-radius:6px;background:#252b38;font-size:12px;min-width:0;}
   .zoomMini.hidden{display:none;}
 </style>
@@ -871,7 +871,6 @@ function render(t){
   ctx.clearRect(-20,-20,CANVAS_W+40,CANVAS_H+40);
   drawBackground();
   if(state.screen==='layoutEdit'){
-    // 僅顯示待機中的玩家角色，無敵人、無戰鬥
     const charObj=getCurrentCharacter();
     const weaponObj=getCurrentWeapon();
     const color={body:charObj.body,bodyHi:charObj.bodyHi,limb:charObj.limb,crest:charObj.crest};
@@ -1052,7 +1051,7 @@ function applyLayout(layoutObj){
 // ===================== 按鍵配置：直接在正式畫面上編輯 =====================
 const LAYOUT_KEYS=['high','mid','low','attack'];
 let draftLayout=null;
-let layoutEditDrag=null; // {key, startPX, startPY, startDx, startDy}
+let layoutEditDrag=null;
 const zoomMiniEls={};
 
 function getBtnEl(key){
@@ -1136,7 +1135,7 @@ document.getElementById('btnSaveLayoutEdit').addEventListener('pointerdown',e=>{
 });
 document.getElementById('btnCancelLayoutEdit').addEventListener('pointerdown',e=>{
   e.preventDefault();
-  applyLayout(settings.layout); // 還原成儲存前的樣子
+  applyLayout(settings.layout);
   exitLayoutEditMode();
 });
 document.getElementById('btnResetLayoutEdit').addEventListener('pointerdown',e=>{
@@ -1146,7 +1145,6 @@ document.getElementById('btnResetLayoutEdit').addEventListener('pointerdown',e=>
   positionZoomMinis();
 });
 
-// 拖曳邏輯：直接綁在正式按鍵上，僅在 layoutEdit 狀態下作用
 LAYOUT_KEYS.forEach(key=>{
   const el=getBtnEl(key);
   el.addEventListener('pointerdown',e=>{
@@ -1220,7 +1218,7 @@ document.querySelectorAll('.langOption').forEach(btn=>{
 // ===================== 操作綁定 =====================
 function bindTap(el,fn){
   el.addEventListener('pointerdown',e=>{
-    if(state.screen==='layoutEdit')return; // 編輯模式下交給拖曳邏輯處理，不觸發格擋/攻擊
+    if(state.screen==='layoutEdit')return;
     e.preventDefault();fn();
   });
 }
